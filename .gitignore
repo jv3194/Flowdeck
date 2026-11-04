@@ -1,0 +1,6 @@
+# build output (the release zip is attached to a GitHub release, not committed)
+dist/
+node_modules/
+# local data and logs
+data/
+*.log
