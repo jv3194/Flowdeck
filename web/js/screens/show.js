@@ -1,6 +1,6 @@
-import { describe } from '../library.js';
+import { describe, nextEpisode } from '../library.js';
 import { coverEl, dominantColor } from '../covers.js';
-import { fmtTime, h, icon } from '../util.js';
+import { fmtTime, h, icon, pointerMoved } from '../util.js';
 
 /** A TV show: poster and details on the left, episodes grouped by season on the right. */
 export class ShowScreen {
@@ -50,21 +50,22 @@ export class ShowScreen {
     if (d.cover) dominantColor(d.cover).then((c) => token === this.token && this.app.setTint(c ? c.hue : d.hue, c ? c.sat : 0.55));
   }
 
-  /** Index to continue from: the last episode with saved progress, else the first. */
+  /** Index to continue from: the episode in progress, else the next one after those finished (see library.js). */
   get resumeIndex() {
-    const progress = this.app.prefs.progress || {};
-    let at = -1;
-    this.show.episodes.forEach((e, i) => { if (progress[e.id]) at = i; });
-    return Math.max(0, at);
+    return nextEpisode(this.show);
   }
 
   render() {
     const { episodes } = this.show;
     const progress = this.app.prefs.progress || {};
+    const watched = this.app.prefs.watched || {};
     const i = this.resumeIndex;
     const resuming = !!progress[episodes[i].id];
     const e = episodes[i];
-    this.playLabel.textContent = resuming ? `Continue S${e.parsed.season}E${e.parsed.episode}` : 'Play';
+    const tag = `S${e.parsed.season}E${e.parsed.episode}`;
+    const some = episodes.some((x) => watched[x.id]);
+    const all = episodes.every((x) => watched[x.id]);
+    this.playLabel.textContent = resuming ? `Continue ${tag}` : all ? 'Play again' : some ? `Next: ${tag}` : 'Play';
     this.rows = [];
     const kids = [];
     let season = null;
@@ -77,8 +78,8 @@ export class ShowScreen {
       const row = h('li', { class: 'track ep', onclick: () => this.play(idx) },
         h('span', { class: 'num' }, ep.parsed.episode),
         h('span', { class: 't' }, ep.title),
-        h('span', { class: `d${progress[ep.id] ? ' resume' : ''}` }, progress[ep.id] ? `▶ ${fmtTime(progress[ep.id])}` : mins));
-      row.addEventListener('pointermove', () => { if (this.zone !== 'track' || this.sel !== idx) { this.zone = 'track'; this.sel = idx; this.paint(false); } });
+        h('span', { class: `d${progress[ep.id] ? ' resume' : ''}` }, progress[ep.id] ? `▶ ${fmtTime(progress[ep.id])}` : watched[ep.id] ? `✓ ${mins}`.trim() : mins));
+      row.addEventListener('pointermove', (e) => { if (pointerMoved(e) && (this.zone !== 'track' || this.sel !== idx)) { this.zone = 'track'; this.sel = idx; this.paint(false); } });
       this.rows.push(row);
       kids.push(row);
     });

@@ -43,6 +43,7 @@ export class AudioEngine extends Emitter {
   /** Replace the queue and start at `index`. */
   load(tracks, index = 0, { autoplay = true } = {}) {
     this.queue = tracks;
+    this.errors = 0; // a new queue starts with a clean count of unplayable files
     this.buildOrder(index);
     this.start(autoplay);
     this.emit('queue');

@@ -29,9 +29,9 @@ export function fmtTime(s) {
 
 export function fmtLong(s) {
   if (!Number.isFinite(s) || s <= 0) return '';
-  const hh = Math.floor(s / 3600);
-  const mm = Math.round((s % 3600) / 60);
-  return hh ? `${hh} hr ${mm} min` : `${Math.max(1, mm)} min`;
+  const total = Math.max(1, Math.round(s / 60)); // round the whole length, so 1:59:45 is "2 hr 0 min", never "1 hr 60 min"
+  const hh = Math.floor(total / 60);
+  return hh ? `${hh} hr ${total % 60} min` : `${total} min`;
 }
 
 export function fmtBytes(n) {
@@ -69,6 +69,8 @@ export function debounce(fn, ms) {
 
 const P = {
   play: 'M8 5v14l11-7z',
+  unchecked: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z',
+  book: 'M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z',
   pause: 'M6 5h4v14H6zM14 5h4v14h-4z',
   next: 'M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z',
   prev: 'M6 6h2v12H6zM9.5 12l8.5 6V6z',
@@ -101,6 +103,10 @@ const P = {
   trash: 'M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
   speed: 'M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z',
   slideshow: 'M10 8v8l5-4-5-4zm9-5H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z',
+  chevL: 'M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z',
+  chevR: 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
+  search: 'M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
+  lang: 'M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z',
   cc: 'M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z',
   palette: 'M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z',
   upload: 'M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z',
@@ -139,3 +145,15 @@ export function keycap(label) {
 }
 
 export const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// A browser repeats the last pointer position as a "move" when a list scrolls under a resting mouse. Hover must not
+// treat that as the user pointing at a row, or the arrow keys would be pulled back to wherever the mouse is sitting.
+let lastX = NaN;
+let lastY = NaN;
+/** True only when the pointer really moved since the last time this was asked. */
+export function pointerMoved(e) {
+  if (e.clientX === lastX && e.clientY === lastY) return false;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  return true;
+}

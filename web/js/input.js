@@ -6,6 +6,7 @@ const KEYS = {
   Enter: 'confirm', Escape: 'back', Backspace: 'back', Tab: 'options', ContextMenu: 'options',
   PageUp: 'catPrev', PageDown: 'catNext', '[': 'catPrev', ']': 'catNext',
   ' ': 'playpause', MediaPlayPause: 'playpause', MediaTrackNext: 'next', MediaTrackPrevious: 'prev',
+  '=': 'picZoomIn', '+': 'picZoomIn', '-': 'picZoomOut', _: 'picZoomOut', // zoom the picture, in the video player
   F11: 'fullscreen', Home: 'first', End: 'last',
 };
 
@@ -20,6 +21,7 @@ const PAD = [
   ['prev', (p) => p.buttons[6]?.pressed],
   ['next', (p) => p.buttons[7]?.pressed],
   ['playpause', (p) => p.buttons[9]?.pressed],
+  ['shape', (p) => p.buttons[10]?.pressed],
   ['up', (p) => p.buttons[12]?.pressed || p.axes[1] < -0.6],
   ['down', (p) => p.buttons[13]?.pressed || p.axes[1] > 0.6],
   ['left', (p) => p.buttons[14]?.pressed || p.axes[0] < -0.6],
@@ -38,6 +40,12 @@ export class Input {
       e.preventDefault();
       this.dispatch('options', e);
     });
+    // A mouse's "back" side button does what Esc does.
+    addEventListener('mouseup', (e) => {
+      if (e.button !== 3) return;
+      e.preventDefault();
+      this.dispatch('back', e);
+    });
     addEventListener('gamepadconnected', () => this.startPolling());
     if ([...(navigator.getGamepads?.() || [])].some(Boolean)) this.startPolling();
   }
@@ -49,6 +57,12 @@ export class Input {
   }
 
   key(e) {
+    // Ctrl and + / - / 0 change the interface size (the one Ctrl combination the app uses).
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const zoom = e.key === '+' || e.key === '=' ? 'zoomIn' : e.key === '-' || e.key === '_' ? 'zoomOut' : e.key === '0' ? 'zoomReset' : null;
+      if (zoom && !e.target.matches?.('input, textarea') && this.dispatch(zoom, e)) e.preventDefault();
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey || e.target.matches?.('input, textarea')) return;
     this.setDevice('kbd');
     const action = KEYS[e.key];

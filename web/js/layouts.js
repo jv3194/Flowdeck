@@ -72,7 +72,7 @@ export function placement(style, d, cw, tilt = 58) {
       out.z = -(c * cw * 0.66 + far * cw * 0.1);
       out.rotY = -s * c * tilt;
       out.scale = 1 + (1 - c) * 0.05;
-      out.opacity = fade(ad, 3.4, REACH - 3.7);
+      out.opacity = fade(ad, 3.2, 2.6); // gone by 5.8: covers further out are only a sliver at the window's edge, and each one drawn costs frame time
       out.shade = c * 0.46 + Math.min(far, 3) * 0.08;
     }
   }

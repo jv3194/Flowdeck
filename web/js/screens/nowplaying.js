@@ -52,10 +52,14 @@ export class NowPlayingScreen {
     this.modes();
     this.volumeChanged();
     this.resize();
-    requestAnimationFrame(() => this.loop());
+    cancelAnimationFrame(this.raf); // leaving and re-entering within one frame must not leave two loops running
+    this.raf = requestAnimationFrame(() => this.loop());
   }
 
-  leave() { this.active = false; }
+  leave() {
+    this.active = false;
+    cancelAnimationFrame(this.raf);
+  }
 
   track() {
     const t = this.app.audio.track;
@@ -144,7 +148,7 @@ export class NowPlayingScreen {
     bg.setEnergy(audio.level * 0.9);
     this.artWrap.style.transform = `scale(${(1 + audio.level * 0.045).toFixed(3)})`;
     this.draw();
-    requestAnimationFrame(() => this.loop());
+    this.raf = requestAnimationFrame(() => this.loop());
   }
 
   draw() {

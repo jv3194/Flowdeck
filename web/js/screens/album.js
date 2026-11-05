@@ -1,6 +1,6 @@
 import { describe } from '../library.js';
 import { coverEl, dominantColor } from '../covers.js';
-import { fmtLong, fmtTime, h, icon } from '../util.js';
+import { fmtLong, fmtTime, h, icon, pointerMoved } from '../util.js';
 
 export class AlbumScreen {
   constructor(app) {
@@ -21,7 +21,7 @@ export class AlbumScreen {
 
   coverEl() { return this.art; }
 
-  enter({ album }) {
+  enter({ album, select }) {
     this.album = album;
     const d = describe('music', album);
     this.art.replaceChildren(coverEl('music', d));
@@ -32,7 +32,8 @@ export class AlbumScreen {
       h('p', { class: 'stats' }, [album.year, album.genre, `${n} track${n === 1 ? '' : 's'}`, fmtLong(album.duration)].filter(Boolean).join('  ·  ')),
     );
     this.list.replaceChildren(...album.tracks.map((t, i) => this.row(t, i)));
-    const cur = album.tracks.findIndex((t) => t.id === this.app.audio.track?.id);
+    // Opened from search with a song picked: start on that one; otherwise on whichever is playing.
+    const cur = album.tracks.findIndex((t) => t.id === (select || this.app.audio.track?.id));
     this.zone = 'track';
     this.sel = Math.max(0, cur);
     this.mark();
@@ -57,9 +58,9 @@ export class AlbumScreen {
     const r = h('li', { class: 'track', 'data-i': i, onclick: () => this.play(i) },
       h('span', { class: 'num' }, h('span', {}, t.track || i + 1), h('span', { class: 'eq' }, h('i'), h('i'), h('i'))),
       h('span', { class: 't' }, t.title),
-      showArtist ? h('span', { class: 'a' }, t.artist) : h('span'),
+      showArtist ? h('span', { class: 'a' }, t.artist) : this.album.groupedBy === 'artist' ? h('span', { class: 'a' }, t.album || 'Single') : h('span'), // an artist's page says which album each song is from
       h('span', { class: 'd' }, t.duration ? fmtTime(t.duration) : ''));
-    r.addEventListener('pointermove', () => { if (this.zone !== 'track' || this.sel !== i) { this.zone = 'track'; this.sel = i; this.paint(false); } });
+    r.addEventListener('pointermove', (e) => { if (pointerMoved(e) && (this.zone !== 'track' || this.sel !== i)) { this.zone = 'track'; this.sel = i; this.paint(false); } });
     return r;
   }
 

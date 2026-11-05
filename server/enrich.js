@@ -6,6 +6,7 @@ const { ACCEPT } = require('./providers');
 const idle = () => ({ active: false, done: 0, total: 0, found: 0, missed: 0, skipped: 0, failed: 0, wrote: 0, writeFailed: 0, writeError: '', current: '', noKey: false, offline: false, error: '' });
 
 /** First candidate good enough to apply without asking (candidates arrive best-first). */
+const movieSrc = (ref) => (ref.provider === 'itunes' ? 'iTunes' : 'TMDB');
 const pick = (cands, threshold) => (cands || []).find((c) => c.score >= threshold) || null;
 
 /** Source failures other than "no network" shouldn't sink a lookup that another source can answer. */
@@ -130,12 +131,14 @@ class Enricher {
     const it = this.lib.get(t.id);
     if (!it) return 'missed';
     if (!t.force && it.fetched) return 'skipped';
-    const best = pick(await this.p.movieCandidates({ title: t.title, year: t.year }), ACCEPT.movie);
+    let best = pick(await this.p.movieCandidates({ title: t.title, year: t.year }), ACCEPT.movie);
+    // "Wonder Woman 1984" parses as the title "Wonder Woman" released in 1984: if that finds nothing, the number may belong to the title.
+    if (!best && t.year) best = pick(await this.p.movieCandidates({ title: `${t.title} ${t.year}` }), ACCEPT.movie);
     if (!best) {
       this.lib.markTried([t.id]);
       return 'missed';
     }
-    return this._applyMovie(t.id, best.data, 'TMDB');
+    return this._applyMovie(t.id, best.data, movieSrc(best.ref));
   }
 
   async _applyMovie(id, d, src) {
@@ -188,7 +191,7 @@ class Enricher {
       return { found: !!image, art: !!image, written: saved ? saved.wrote : 0, writeFailed: saved ? saved.failed : 0, writeError: saved?.errors[0] || '' };
     }
     if (type === 'movie') {
-      await this._applyMovie(ids[0], await this.p.resolveMovie(ref), 'TMDB');
+      await this._applyMovie(ids[0], await this.p.resolveMovie(ref), movieSrc(ref));
       return { found: true };
     }
     if (type === 'show') {

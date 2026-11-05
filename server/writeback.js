@@ -40,14 +40,21 @@ class WriteBack {
       entry.hdr = `${Date.now()}-${this.seq++}.hdr`;
       await fsp.writeFile(path.join(this.dir, entry.hdr), original);
     }
-    this.entries.push({ ...entry, at: Date.now() });
+    const rec = { ...entry, at: Date.now() };
+    this.entries.push(rec);
     await this._saveIndex();
+    return rec;
   }
 
   async _drop(entry) {
     this.entries = this.entries.filter((e) => e !== entry);
     if (entry.hdr) await fsp.rm(path.join(this.dir, entry.hdr), { force: true });
     await this._saveIndex();
+  }
+
+  /** Whether a file's tags can be edited here (MP3 and FLAC only). */
+  canWrite(file) {
+    return supportsTags(file);
   }
 
   /** Tracks whose fetched details haven't been saved into their files yet. */
@@ -93,7 +100,10 @@ class WriteBack {
       const wanted = { year: filled.includes('year') ? it.year : undefined, genre: filled.includes('genre') ? it.genre : undefined, image };
       try {
         if (supportsTags(it.path)) {
-          const r = await writeTags(it.path, wanted, { replaceArt, journal: (original, newLen) => this._record({ kind: 'tags', id, path: it.path, newLen }, original) });
+          const r = await writeTags(it.path, wanted, { replaceArt, journal: async (original, newLen) => {
+            const rec = await this._record({ kind: 'tags', id, path: it.path, newLen }, original);
+            return () => this._drop(rec); // if the swap fails, the file is untouched and there is nothing to undo
+          } });
           if (r.changed) {
             out.wrote++;
             await this._refresh(it);
@@ -115,6 +125,47 @@ class WriteBack {
     }
     this.lib._touch();
     return out;
+  }
+
+  /**
+   * Replace tag fields the user approved, song by song: `changes` is [{ id, set: {title, artist, album, albumArtist,
+   * track, trackCount, year, genre}, image? }]. Each edit goes through the same checked rewrite and undo journal as
+   * everything else here. Resolves { wrote, same, skipped, failed, errors, done: [ids that changed] }.
+   */
+  songs(changes) {
+    return this._serial(() => this._songs(changes));
+  }
+
+  async _songs(changes) {
+    const out = { wrote: 0, same: 0, skipped: 0, failed: 0, errors: [], done: [] };
+    for (const { id, set, image } of changes) {
+      const it = this.lib.get(id);
+      if (!it || it.kind !== 'audio') { out.skipped++; continue; }
+      const name = path.basename(it.path);
+      if (!supportsTags(it.path)) { out.skipped++; out.errors.push(`${name}: only MP3 and FLAC files can be edited`); continue; }
+      try {
+        const r = await writeTags(it.path, { set, image }, { journal: async (original, newLen) => {
+          const rec = await this._record({ kind: 'tags', id, path: it.path, newLen }, original);
+          return () => this._drop(rec);
+        } });
+        if (r.changed) {
+          out.wrote++;
+          out.done.push(id);
+          this._adopt(it, await this._refresh(it));
+        } else if (r.reason === 'already complete') out.same++;
+        else { out.skipped++; out.errors.push(`${name}: ${r.reason}`); }
+      } catch (e) {
+        out.failed++;
+        out.errors.push(`${name}: ${e.code === 'EBUSY' || e.code === 'EPERM' || e.code === 'EACCES' ? 'the file is in use or read-only' : e.message}`);
+      }
+    }
+    this.lib._touch();
+    return out;
+  }
+
+  /** The file's tags are what the library should now say about it. */
+  _adopt(it, t) {
+    for (const k of ['title', 'artist', 'album', 'albumArtist', 'track', 'disc', 'year', 'genre']) it[k] = t[k];
   }
 
   async _folderArt(dir, image, id) {
@@ -151,9 +202,7 @@ class WriteBack {
           await restoreHeader(entry.path, await fsp.readFile(path.join(this.dir, entry.hdr)), entry.newLen);
           const it = this.lib.get(entry.id);
           if (it) {
-            const t = await this._refresh(it);
-            it.year = t.year;
-            it.genre = t.genre;
+            this._adopt(it, await this._refresh(it));
           }
         } else if (sha1(await fsp.readFile(entry.path)) === entry.sha1) {
           await fsp.rm(entry.path);

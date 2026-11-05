@@ -403,4 +403,4 @@ async function readPicture(file, ext) {
   }
 }
 
-module.exports = { readTags, readPicture, sniffImage, makeReader };
+module.exports = { readTags, readPicture, sniffImage, makeReader, decodeText };

@@ -112,7 +112,8 @@ const seconds = (h, m, s, f) => Number(h || 0) * 3600 + Number(m) * 60 + Number(
 
 function parseTimed(text) {
   const cues = [];
-  for (const block of text.replace(/\r\n?/g, '\n').split(/\n{2,}/)) {
+  // A "blank" separator line may hold stray spaces or tabs; it still ends the cue.
+  for (const block of text.replace(/\r\n?/g, '\n').split(/\n(?:[ \t]*\n)+/)) {
     const lines = block.split('\n');
     const at = lines.findIndex((l) => TIMING.test(l));
     if (at < 0) continue; // WEBVTT header, NOTE, STYLE, stray index
@@ -224,17 +225,23 @@ async function findSidecars(videoPath) {
     }
   };
   const ents = await list(dir);
-  const onlyVideo = ents.filter((e) => e.isFile() && VIDEO_EXT.has(extOf(e.name))).length === 1;
+  const videos = ents.filter((e) => e.isFile() && VIDEO_EXT.has(extOf(e.name)));
+  const onlyVideo = videos.length === 1;
+  // Other videos here whose names start with this one's ("Alien 3" next to "Alien"): their subtitles are theirs.
+  const longer = videos.map((e) => path.basename(e.name, path.extname(e.name)).toLowerCase()).filter((n) => n.length > baseLc.length && n.startsWith(baseLc));
   const found = [];
 
   const take = (full, name, related) => {
     const ext = extOf(name);
     if (!SUB_EXT.has(ext)) return;
     const stem = name.slice(0, -(ext.length + 1));
+    const stemLc = stem.toLowerCase();
     let rest = null;
-    if (stem.toLowerCase() === baseLc) rest = '';
-    else if (stem.toLowerCase().startsWith(baseLc) && /^[.\-_ ]/.test(stem.slice(base.length))) rest = stem.slice(base.length);
-    else if (related || onlyVideo) rest = stem;
+    if (stemLc === baseLc) rest = '';
+    else if (stemLc.startsWith(baseLc) && /^[.\-_ ]/.test(stem.slice(base.length))) {
+      if (longer.some((n) => stemLc === n || (stemLc.startsWith(n) && /^[.\-_ ]/.test(stem.slice(n.length))))) return;
+      rest = stem.slice(base.length);
+    } else if (related || onlyVideo) rest = stem;
     if (rest === null) return;
     const prefixed = rest === '' || stem.toLowerCase().startsWith(baseLc);
     found.push({ file: full, ext, ...describeName(rest, { allowTwoLetter: prefixed }) });

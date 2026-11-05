@@ -5,8 +5,15 @@ import { LAYOUTS } from './layouts.js';
 export const BACKGROUNDS = [
   ['waves', 'Waves'], ['aurora', 'Aurora'], ['grid', 'Retro grid'], ['stars', 'Starfield'],
   ['bubbles', 'Bubbles'], ['rain', 'Rain'], ['embers', 'Embers'], ['snow', 'Snowfall'],
+  ['nebula', 'Nebula'], ['fireflies', 'Fireflies'], ['ribbons', 'Ribbons'], ['skyline', 'Skyline'], ['plasma', 'Plasma'],
   ['gradient', 'Soft gradient'], ['solid', 'Solid colour'],
 ];
+
+/** Backgrounds made of many small moving things, which the "Particles" setting thins out or thickens. */
+export const PARTICLE_BACKGROUNDS = ['waves', 'bubbles', 'rain', 'embers', 'snow', 'stars', 'nebula', 'fireflies'];
+
+/** How the covers are framed. */
+export const FRAMES = [['soft', 'Soft'], ['glass', 'Glass'], ['sharp', 'Sharp'], ['neon', 'Neon'], ['film', 'Film']];
 
 export const FONTS = {
   soft: { label: 'Soft', stack: '"Segoe UI Variable Display", "Segoe UI", "SF Pro Display", -apple-system, "Helvetica Neue", system-ui, sans-serif' },
@@ -15,12 +22,13 @@ export const FONTS = {
   mono: { label: 'Mono', stack: '"Cascadia Code", "SF Mono", Consolas, "Courier New", monospace' },
 };
 
-export const LIMITS = { brightness: [0, 100], glass: [0, 100], corners: [0, 30], motion: [0, 100], tilt: [30, 75], hue: [0, 359], sat: [0, 100] };
+export const LIMITS = { brightness: [0, 100], glass: [0, 100], corners: [0, 30], motion: [0, 100], tilt: [30, 75], hue: [0, 359], sat: [0, 100], glow: [0, 100], grain: [0, 100], density: [25, 200] };
 
-/** What a theme looks like when nothing is said. */
+/** What a theme looks like when nothing is said. A theme file from before a setting existed simply gets these. */
 export const BASE = Object.freeze({
   mode: 'dark', background: 'waves', accent: { mode: 'cover', hue: 320, sat: 65 },
   brightness: 50, glass: 50, corners: 14, reflection: true, motion: 60, flow: 'slab', tilt: 58, font: 'soft',
+  frame: 'soft', glow: 50, grain: 0, density: 100,
 });
 
 const make = (id, name, over) => Object.freeze({ id, name, builtin: true, ...BASE, ...over, accent: { ...BASE.accent, ...(over.accent || {}) } });
@@ -46,9 +54,23 @@ export const PRESETS = [
   make('amethyst', 'Amethyst', { background: 'gradient', accent: { mode: 'fixed', hue: 272, sat: 70 }, brightness: 30, glass: 55, corners: 16, motion: 45, flow: 'stack', tilt: 55 }),
   make('bloodmoon', 'Blood Moon', { background: 'stars', accent: { mode: 'fixed', hue: 355, sat: 85 }, brightness: 25, glass: 30, corners: 12, motion: 35, flow: 'fan', tilt: 50, font: 'serif' }),
 
+  // Richer ones: the newer backgrounds, with a cover frame, glow, film grain and particle density to match.
+  make('nebula', 'Nebula', { background: 'nebula', accent: { mode: 'fixed', hue: 268, sat: 78 }, brightness: 40, glass: 45, corners: 18, motion: 45, flow: 'carousel', tilt: 48, frame: 'glass', glow: 70, grain: 10 }),
+  make('deepspace', 'Deep Space', { background: 'nebula', accent: { mode: 'fixed', hue: 212, sat: 80 }, brightness: 28, glass: 35, corners: 8, motion: 40, flow: 'fan', tilt: 55, font: 'tech', frame: 'sharp', glow: 65, grain: 25, density: 160 }),
+  make('fireflies', 'Fireflies', { background: 'fireflies', accent: { mode: 'fixed', hue: 78, sat: 85 }, brightness: 35, glass: 40, corners: 20, motion: 55, flow: 'stack', tilt: 55, font: 'serif', frame: 'soft', glow: 85, grain: 15 }),
+  make('midnightcity', 'Midnight City', { background: 'skyline', accent: { mode: 'fixed', hue: 285, sat: 88 }, brightness: 45, glass: 30, corners: 6, motion: 60, flow: 'flat', tilt: 50, font: 'tech', frame: 'neon', glow: 90, grain: 20 }),
+  make('dusk', 'Dusk Skyline', { background: 'skyline', accent: { mode: 'fixed', hue: 18, sat: 85 }, brightness: 55, glass: 45, corners: 14, motion: 50, flow: 'slab', tilt: 55, frame: 'glass', glow: 55, grain: 12 }),
+  make('plasma', 'Plasma', { background: 'plasma', brightness: 50, glass: 40, corners: 16, motion: 70, flow: 'carousel', tilt: 50, frame: 'glass', glow: 60 }),
+  make('vaporwave', 'Vaporwave', { background: 'plasma', accent: { mode: 'fixed', hue: 318, sat: 90 }, brightness: 58, glass: 35, corners: 10, motion: 75, flow: 'fan', tilt: 60, font: 'tech', frame: 'neon', glow: 85, grain: 18 }),
+  make('wireframe', 'Wireframe', { background: 'ribbons', accent: { mode: 'fixed', hue: 150, sat: 85 }, brightness: 22, glass: 25, corners: 2, reflection: false, motion: 60, flow: 'flat', tilt: 50, font: 'mono', frame: 'sharp', glow: 75 }),
+  make('cinema', 'Cinema', { background: 'solid', accent: { mode: 'fixed', hue: 40, sat: 60 }, brightness: 3, glass: 15, corners: 4, reflection: false, motion: 0, flow: 'flat', tilt: 45, font: 'serif', frame: 'film', glow: 20, grain: 45 }),
+  make('lagoon', 'Lagoon', { background: 'waves', accent: { mode: 'fixed', hue: 176, sat: 78 }, brightness: 38, glass: 50, corners: 22, motion: 55, flow: 'slab', tilt: 50, frame: 'glass', glow: 60, grain: 10, density: 170 }),
+
   // Light ones.
   make('daylight', 'Daylight', { mode: 'light', background: 'gradient', brightness: 60, glass: 60, corners: 16, motion: 40, tilt: 55 }),
   make('paper', 'Paper', { mode: 'light', background: 'solid', accent: { mode: 'fixed', hue: 24, sat: 55 }, brightness: 55, glass: 70, corners: 4, reflection: false, motion: 0, flow: 'flat', tilt: 50, font: 'serif' }),
+  make('silk', 'Silk', { mode: 'light', background: 'ribbons', accent: { mode: 'fixed', hue: 205, sat: 55 }, brightness: 62, glass: 65, corners: 22, motion: 50, flow: 'slab', tilt: 50, frame: 'glass', glow: 30, grain: 8 }),
+  make('daybreak', 'Daybreak', { mode: 'light', background: 'skyline', accent: { mode: 'fixed', hue: 28, sat: 70 }, brightness: 65, glass: 55, corners: 12, motion: 45, flow: 'stack', tilt: 52, frame: 'sharp', glow: 25, grain: 10 }),
 ];
 
 const clamp = (v, [lo, hi], fallback) => {
@@ -74,15 +96,22 @@ export function normalizeTheme(raw, { name } = {}) {
     flow: oneOf(raw.flow, LAYOUTS.map(([k]) => k), BASE.flow),
     tilt: clamp(raw.tilt, LIMITS.tilt, BASE.tilt),
     font: oneOf(raw.font, Object.keys(FONTS), BASE.font),
+    frame: oneOf(raw.frame, FRAMES.map(([k]) => k), BASE.frame),
+    glow: clamp(raw.glow, LIMITS.glow, BASE.glow),
+    grain: clamp(raw.grain, LIMITS.grain, BASE.grain),
+    density: clamp(raw.density, LIMITS.density, BASE.density),
   };
 }
+
+/** Every setting a theme file carries, in one place, so saving, exporting and updating can never forget one. */
+export const THEME_KEYS = ['name', 'mode', 'background', 'accent', 'brightness', 'glass', 'corners', 'reflection', 'motion', 'flow', 'tilt', 'font', 'frame', 'glow', 'grain', 'density'];
+const pickKeys = (theme) => Object.fromEntries(THEME_KEYS.map((k) => [k, theme[k]]));
 
 const slug = (s) => String(s).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'theme';
 
 /** The theme as a shareable file's text. */
 export function exportJson(theme) {
-  const { name, mode, background, accent, brightness, glass, corners, reflection, motion, flow, tilt, font } = theme;
-  return JSON.stringify({ flowdeckTheme: 1, name, mode, background, accent, brightness, glass, corners, reflection, motion, flow, tilt, font }, null, 2);
+  return JSON.stringify({ flowdeckTheme: 1, ...pickKeys(theme) }, null, 2);
 }
 
 /** Parse a theme file's text. Throws a readable error for anything that is not a Flowdeck theme. */
@@ -205,8 +234,7 @@ export class ThemeManager {
   updateCustom() {
     const id = this.activeId;
     if (this.base.builtin) throw new Error('Built-in themes cannot be changed: use Save as a new theme');
-    const { name, mode, background, accent, brightness, glass, corners, reflection, motion, flow, tilt, font } = this.effective;
-    this.app.patchPrefs({ themes: { [id]: { name, mode, background, accent, brightness, glass, corners, reflection, motion, flow, tilt, font } }, theme: { id, tweaks: null } });
+    this.app.patchPrefs({ themes: { [id]: pickKeys(this.effective) }, theme: { id, tweaks: null } });
     this.changed();
   }
 
@@ -272,6 +300,18 @@ export function swatch(theme) {
       return `radial-gradient(circle at 28% 38%, hsl(${hue + 22} 100% 75%) 0 1px, transparent 1.7px), radial-gradient(circle at 62% 24%, hsl(${hue + 10} 100% 70%) 0 1.2px, transparent 1.9px), radial-gradient(circle at 78% 52%, hsl(${hue} 100% 68%) 0 1px, transparent 1.7px), radial-gradient(90% 65% at 50% 125%, hsl(${hue - 8} 100% 52%) 0 35%, transparent 75%), ${base}`;
     case 'snow':
       return `radial-gradient(circle, ${ink} 0 1.3px, transparent 1.9px) 2px 1px / 12px 10px, radial-gradient(circle, ${ink} 0 0.9px, transparent 1.5px) 7px 6px / 15px 13px, linear-gradient(180deg, transparent 55%, hsl(${hue} 50% ${light ? 90 : 80}% / 0.35)), ${base}`;
+    case 'nebula':
+      return `radial-gradient(40% 55% at 28% 38%, hsl(${hue} 85% 58% / 0.8), transparent), radial-gradient(45% 50% at 72% 62%, hsl(${hue + 70} 80% 52% / 0.7), transparent), radial-gradient(30% 35% at 55% 25%, hsl(${hue - 50} 85% 60% / 0.55), transparent), radial-gradient(circle, ${ink} 0 0.5px, transparent 1px) 3px 4px / 10px 9px, ${base}`;
+    case 'fireflies':
+      return `radial-gradient(circle at 24% 62%, hsl(${hue + 20} 100% 80%) 0 1px, hsl(${hue + 20} 100% 60% / 0.5) 2px, transparent 6px), radial-gradient(circle at 58% 34%, hsl(${hue + 20} 100% 80%) 0 1.2px, hsl(${hue + 20} 100% 60% / 0.5) 2.4px, transparent 7px), radial-gradient(circle at 80% 70%, hsl(${hue + 20} 100% 80%) 0 1px, hsl(${hue + 20} 100% 60% / 0.5) 2px, transparent 6px), radial-gradient(circle at 40% 80%, hsl(${hue + 20} 100% 80%) 0 0.8px, hsl(${hue + 20} 100% 60% / 0.5) 1.8px, transparent 5px), ${base}`;
+    case 'ribbons':
+      return `repeating-linear-gradient(172deg, transparent 0 5px, hsl(${hue + 20} 90% ${light ? 40 : 72}% / 0.55) 5px 6px), radial-gradient(70% 90% at 50% 120%, hsl(${hue} 85% 55% / 0.6), transparent), ${base}`;
+    case 'skyline': {
+      const city = light ? 'hsl(225 25% 55%)' : 'hsl(240 30% 7%)';
+      return `linear-gradient(${city}, ${city}) 8% 100% / 14% 46% no-repeat, linear-gradient(${city}, ${city}) 24% 100% / 10% 62% no-repeat, linear-gradient(${city}, ${city}) 38% 100% / 16% 38% no-repeat, linear-gradient(${city}, ${city}) 58% 100% / 12% 70% no-repeat, linear-gradient(${city}, ${city}) 74% 100% / 15% 50% no-repeat, linear-gradient(${city}, ${city}) 92% 100% / 12% 40% no-repeat, linear-gradient(180deg, hsl(${hue + 240} 55% ${light ? 80 : 14}%), hsl(${hue - 10} 85% ${light ? 82 : 42}%) 78%)`;
+    }
+    case 'plasma':
+      return `conic-gradient(from 20deg at 30% 40%, hsl(${hue} 90% 55%), hsl(${hue + 70} 90% 50%), hsl(${hue + 140} 85% 55%), hsl(${hue} 90% 55%)), ${base}`;
     case 'gradient':
       return `radial-gradient(circle at 72% 28%, hsl(${hue + 45} 85% 62% / 0.75), transparent 62%), ${base}`;
     case 'solid': {
@@ -298,12 +338,15 @@ export function applyTheme(app, theme) {
   s.setProperty('--glass-b', (0.03 + g * 0.08).toFixed(3));
   s.setProperty('--glass-solid-a', (0.4 + g * 0.45).toFixed(3));
   s.setProperty('--blur', `${Math.round(8 + g * 28)}px`);
+  root.dataset.frame = theme.frame;
+  s.setProperty('--glow', (theme.glow / 50).toFixed(2)); // 1 is the classic glow; the stylesheet multiplies its glows by this
+  s.setProperty('--grain', (theme.grain / 100).toFixed(2));
   try {
     localStorage.setItem('flowdeck-mode', theme.mode); // lets the next launch paint the right colours before anything loads
   } catch {
     /* storage unavailable: only the first paint is affected */
   }
-  app.bg?.configure({ style: theme.background, mode: theme.mode, brightness: theme.brightness, motion: theme.motion });
+  app.bg?.configure({ style: theme.background, mode: theme.mode, brightness: theme.brightness, motion: theme.motion, density: theme.density });
   app.retint?.();
   app.nav?.screens?.home?.flow?.setLayout(theme.flow, theme.tilt);
 }

@@ -9,6 +9,7 @@ const { version } = require('../package.json');
 const { Library, kindOf } = require('./library');
 const { createProviders } = require('./providers');
 const { Enricher, cleanTargets } = require('./enrich');
+const { SongIdentifier } = require('./songs');
 const { WriteBack } = require('./writeback');
 const subtitles = require('./subtitles');
 const { mkvTracks, mkvCues, mkvStreams } = require('./mkv');
@@ -162,6 +163,7 @@ async function listDir(p) {
 
 function mergePrefs(base, patch) {
   for (const [k, v] of Object.entries(patch)) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue; // JSON.parse makes "__proto__" an own key
     if (v === null) delete base[k];
     else if (v && typeof v === 'object' && !Array.isArray(v) && base[k] && typeof base[k] === 'object' && !Array.isArray(base[k])) mergePrefs(base[k], v);
     else base[k] = v;
@@ -189,6 +191,7 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
   providers = providers || createProviders({ getTmdbKey });
   const writeback = new WriteBack(lib, dataDir);
   const enricher = new Enricher(lib, providers, writeback);
+  const songs = new SongIdentifier(lib, providers, writeback);
   const libraryPayload = () => ({ ...lib.snapshot(), fetch: enricher.state, tmdb: !!getTmdbKey(), version });
 
   // ---- subtitles
@@ -253,10 +256,12 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
   async function playPlan(it, url) {
     const caps = transcode.parseCaps(url.searchParams.get('caps'));
     const force = url.searchParams.get('force') === '1';
+    const pick = url.searchParams.get('audio'); // the ordinal of the sound track the viewer chose, if any
+    const audio = pick != null && /^\d{1,2}$/.test(pick) ? Number(pick) : null;
     // A file nobody could read still converts when forced: assume one ordinary video and one sound track, so the only
     // reason given is that it wouldn't play (not made-up codec names).
     const info = (await videoInfo(it)) || (force ? { duration: it.duration || 0, video: { codec: 'h264', bitDepth: 8, chroma: '420', height: 0 }, audio: [{ codec: 'aac', channels: 2, isDefault: true, ordinal: 0 }] } : { duration: 0, video: null, audio: [] });
-    return transcode.decide(info, caps, { force });
+    return transcode.decide(info, caps, { force, audio });
   }
 
   const prefsFile = path.join(dataDir, 'prefs.json');
@@ -291,7 +296,11 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
       return send(res, 415, { error: 'Unsupported content type' });
     }
     if (route === '/api/library' && method === 'GET') {
-      if (Number(url.searchParams.get('rev')) === lib.rev) return send(res, 200, { rev: lib.rev, unchanged: true, scanning: lib.scanning, progress: lib.progress, fetch: enricher.state, tmdb: !!getTmdbKey() });
+      const status = { rev: lib.rev, scanning: lib.scanning, progress: lib.progress, fetch: enricher.state, tmdb: !!getTmdbKey() };
+      if (Number(url.searchParams.get('rev')) === lib.rev) return send(res, 200, { ...status, unchanged: true });
+      // `lite`: just the progress, without the whole library. A scan changes the library every second or so, and
+      // sending every item each time (megabytes, for a big collection) is wasted work for what is only a progress bar.
+      if (url.searchParams.get('lite') === '1') return send(res, 200, { ...status, lite: true });
       return send(res, 200, libraryPayload());
     }
     if (/^\/api\/meta\/(fetch|clear|candidates|apply|key|write|undo)$/.test(route) && method === 'POST') {
@@ -342,6 +351,24 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
         return send(res, 200, { ok: true, tmdb: !!getTmdbKey() });
       }
     }
+    // Per-song identification: look songs up (a job the page polls), then save the proposals the user approved.
+    if (route === '/api/songs' && method === 'GET') return send(res, 200, songs.snapshot());
+    if (/^\/api\/songs\/(identify|cancel|apply)$/.test(route) && method === 'POST') {
+      const body = JSON.parse((await readBody(req, 4 << 20)).toString() || '{}');
+      if (route === '/api/songs/cancel') {
+        songs.cancel();
+        return send(res, 200, { ok: true });
+      }
+      if (route === '/api/songs/identify') {
+        const ids = Array.isArray(body.ids) ? body.ids.filter((i) => /^[0-9a-f]{8,32}$/.test(i)).slice(0, 5000) : [];
+        return send(res, 200, { ok: true, queued: songs.start(ids) });
+      }
+      try {
+        return send(res, 200, { ok: true, ...(await songs.apply(body.changes)) });
+      } catch (e) {
+        return send(res, 502, { error: e.message });
+      }
+    }
     if (route === '/api/ffmpeg' && method === 'GET') return send(res, 200, await ffmpeg.status());
     if (route === '/api/ffmpeg/install' && method === 'POST') {
       try {
@@ -361,9 +388,17 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
       if (!it || it.kind !== 'video') return send(res, 404, { error: 'Not a video' });
       const plan = await playPlan(it, url);
       return send(res, 200, {
-        mode: plan.mode, reasons: plan.reasons, description: plan.mode === 'direct' ? '' : transcode.describe(plan),
+        mode: plan.mode, switched: plan.switched, hasVideo: plan.hasVideo, reasons: plan.reasons, description: plan.mode === 'direct' ? '' : transcode.describe(plan),
         duration: plan.duration || it.duration || 0, ffmpeg: await ffmpeg.status(),
       });
+    }
+    // The sound tracks a video has (languages, formats), for the player's audio picker. Empty when they can't be read.
+    const audioRoute = /^\/api\/audio\/([0-9a-f]{8,32})$/.exec(route);
+    if (audioRoute && method === 'GET') {
+      const it = lib.get(audioRoute[1]);
+      if (!it || it.kind !== 'video') return send(res, 404, { error: 'Not a video' });
+      const tracks = transcode.audioList(await videoInfo(it).catch(() => null)).map(({ rawLang, ...t }) => ({ ...t, lang: subtitles.normalizeLang(rawLang) }));
+      return send(res, 200, { tracks });
     }
     if (route === '/api/prefs') {
       if (method === 'GET') return send(res, 200, prefs);
@@ -389,13 +424,13 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
       const body = JSON.parse((await readBody(req, 1 << 16)).toString() || '{}');
       if (method === 'POST') {
         try {
-          return send(res, 200, { ok: true, path: await lib.addRoot(String(body.path || '')) });
+          return send(res, 200, { ok: true, path: await lib.addRoot(String(body.path || ''), body.photos === true) });
         } catch (e) {
           return send(res, 400, { error: e.code === 'ENOENT' ? 'Folder not found' : e.message });
         }
       }
       if (method === 'DELETE') {
-        lib.removeRoot(String(body.path || ''));
+        lib.removeRoot(String(body.path || ''), body.photos === true);
         return send(res, 200, { ok: true });
       }
     }
@@ -447,6 +482,7 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
           duration: Number(url.searchParams.get('duration')),
           width: Number(url.searchParams.get('width')),
           height: Number(url.searchParams.get('height')),
+          size: Number(url.searchParams.get('size')),
         });
         return send(res, ok ? 200 : 404, { ok });
       }
@@ -490,6 +526,7 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
   }
   boundPort = server.address().port;
 
+  lib.watch(); // and keep it fresh: changes to the folders trigger a rescan
   lib.scan(); // refresh in the background so the UI shows the cached library immediately
 
   return {
@@ -498,6 +535,7 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
     lib,
     close: async () => {
       ffmpeg.shutdown(); // stop any conversion and download, or the server can't finish closing
+      lib.close(); // stop watching folders
       await lib.saveNow();
       await new Promise((r) => server.close(r));
     },

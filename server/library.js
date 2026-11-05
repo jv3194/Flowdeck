@@ -55,12 +55,63 @@ class Library {
     this.coverDir = path.join(dataDir, 'covers');
     this.file = path.join(dataDir, 'library.json');
     this.items = new Map();
-    this.roots = [];
+    this.roots = []; // music and video folders
+    this.photoRoots = []; // photo folders: photos are only ever indexed from these
     this.rev = 0;
     this.scanning = false;
     this.progress = { done: 0, total: 0 };
     this._saveTimer = null;
+    this._watchers = new Map(); // folder -> its fs.watch handle
+    this._watchTimer = null;
+    this._closed = false;
+    this.watchDelay = 4000; // how long after the last change in a folder the library rescans (a file being copied changes many times)
     fs.mkdirSync(this.coverDir, { recursive: true });
+  }
+
+  /**
+   * Watch every library folder, so files added, removed or renamed outside Flowdeck appear without a manual rescan.
+   * Safe to call at any time: it adds watchers for new folders and drops the ones for folders that were removed.
+   */
+  watch() {
+    if (this._closed) return;
+    const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+    const want = new Map([...this.roots, ...this.photoRoots].map((r) => [norm(r), r]));
+    for (const [key, w] of this._watchers) {
+      if (want.has(key)) continue;
+      try { w.close(); } catch { /* already closed */ }
+      this._watchers.delete(key);
+    }
+    for (const [key, root] of want) {
+      if (this._watchers.has(key)) continue;
+      try {
+        const w = fs.watch(root, { recursive: true, persistent: false }, (_event, name) => this._changed(name));
+        w.on('error', () => { // the folder went away (an unplugged drive): scanning still copes, and the next scan tries again
+          try { w.close(); } catch { /* already closed */ }
+          if (this._watchers.get(key) === w) this._watchers.delete(key);
+        });
+        this._watchers.set(key, w);
+      } catch {
+        /* a folder that cannot be watched (gone, or no permission) is still scanned by hand */
+      }
+    }
+  }
+
+  _changed(name) {
+    if (this._closed) return;
+    if (name && /\.(flowdeck-tmp|tmp|partial|crdownload)$|~$/i.test(String(name))) return; // half-written files, ours or a download's
+    clearTimeout(this._watchTimer);
+    this._watchTimer = setTimeout(() => this.scan(), this.watchDelay);
+    this._watchTimer.unref?.(); // a pending rescan must never keep the app from quitting
+  }
+
+  /** Stop watching. (Saving is separate: see saveNow.) */
+  close() {
+    this._closed = true;
+    clearTimeout(this._watchTimer);
+    for (const w of this._watchers.values()) {
+      try { w.close(); } catch { /* already closed */ }
+    }
+    this._watchers.clear();
   }
 
   async load() {
@@ -69,6 +120,9 @@ class Library {
       try {
         const data = JSON.parse(await fsp.readFile(file, 'utf8'));
         this.roots = Array.isArray(data.roots) ? data.roots : [];
+        this.photoRoots = Array.isArray(data.photoRoots) ? data.photoRoots : [];
+        // Photos found through a music/video folder (older versions) aren't wanted: only chosen photo folders count.
+        data.items = (data.items || []).filter((it) => it.kind !== 'image' || this.photoRoots.some((r) => sameDir(r, it.root)));
         for (const it of data.items || []) this.items.set(it.id, it);
         this.rev++;
         return;
@@ -83,11 +137,18 @@ class Library {
     this._saveTimer = setTimeout(() => this.saveNow(), 800);
   }
 
-  async saveNow() {
+  /** Saves run one after another: two at once would write the same temporary file and trip over each other. */
+  saveNow() {
     clearTimeout(this._saveTimer);
+    const run = (this._saving || Promise.resolve()).then(() => this._write());
+    this._saving = run;
+    return run;
+  }
+
+  async _write() {
     const tmp = `${this.file}.tmp`;
     try {
-      await fsp.writeFile(tmp, JSON.stringify({ roots: this.roots, items: [...this.items.values()] }));
+      await fsp.writeFile(tmp, JSON.stringify({ roots: this.roots, photoRoots: this.photoRoots, items: [...this.items.values()] }));
       await fsp.copyFile(this.file, `${this.file}.bak`).catch(() => {}); // keep the previous version as a fallback
       await fsp.rename(tmp, this.file);
     } catch (e) {
@@ -95,28 +156,33 @@ class Library {
     }
   }
 
-  async addRoot(p) {
+  async addRoot(p, photos = false) {
     const abs = path.resolve(p);
     const st = await fsp.stat(abs);
     if (!st.isDirectory()) throw new Error('Not a folder');
-    if (!this.roots.some((r) => sameDir(r, abs))) this.roots.push(abs);
+    const list = photos ? this.photoRoots : this.roots;
+    if (!list.some((r) => sameDir(r, abs))) list.push(abs);
     this.rev++;
     this.save();
+    this.watch();
     this.scan();
     return abs;
   }
 
-  removeRoot(p) {
+  removeRoot(p, photos = false) {
     const abs = path.resolve(p);
-    this.roots = this.roots.filter((r) => !sameDir(r, abs));
+    if (photos) this.photoRoots = this.photoRoots.filter((r) => !sameDir(r, abs));
+    else this.roots = this.roots.filter((r) => !sameDir(r, abs));
     for (const [id, it] of this.items) {
-      if (sameDir(it.root, abs)) {
+      // A folder can be both a library folder and a photo folder; each list owns its own kind of file.
+      if (sameDir(it.root, abs) && (it.kind === 'image') === photos) {
         this._dropCover(it);
         this.items.delete(id);
       }
     }
     this.rev++;
     this.save();
+    this.watch();
   }
 
   toClient(it) {
@@ -140,6 +206,7 @@ class Library {
       cover: it.cf || it.pf || it.hasPic || it.folderArt ? 1 : 0,
       cv: it.cv || 0, // bumps whenever the cover changes, so the browser re-fetches it
       poster: it.pf ? 1 : 0,
+      ts: it.ts, // longer side of the generated thumbnail, when there is one
       width: it.width,
       height: it.height,
       dir: path.dirname(it.path),
@@ -156,6 +223,7 @@ class Library {
       scanning: this.scanning,
       progress: this.progress,
       roots: this.roots,
+      photoRoots: this.photoRoots,
       items: [...this.items.values()].map((it) => this.toClient(it)),
     };
   }
@@ -183,6 +251,7 @@ class Library {
       } finally {
         this.scanning = false;
         this._bump();
+        this.watch(); // picks up a folder that has come back since the last scan
         await this.saveNow();
       }
     })();
@@ -193,7 +262,9 @@ class Library {
     const todo = [];
     const okRoots = [];
     let lastBump = Date.now();
-    for (const root of this.roots.slice()) {
+    // Music/video folders never yield photos; photo folders yield nothing but photos.
+    const jobs = [...this.roots.map((root) => ({ root, photos: false })), ...this.photoRoots.map((root) => ({ root, photos: true }))];
+    for (const { root, photos } of jobs) {
       let ok = true;
       const stack = [root];
       while (stack.length) {
@@ -214,7 +285,7 @@ class Library {
           } else if (e.isFile()) {
             const ext = path.extname(e.name).slice(1).toLowerCase();
             const kind = kindOf(ext);
-            if (kind) files.push({ name: e.name, ext, kind });
+            if (kind && (kind === 'image') === photos) files.push({ name: e.name, ext, kind });
           }
         }
         const hasAudio = files.some((f) => f.kind === 'audio');
@@ -252,11 +323,11 @@ class Library {
           this._bump();
         }
       }
-      if (ok) okRoots.push(root);
+      if (ok) okRoots.push({ root, photos });
     }
     // Only prune roots we could actually read, so an unplugged drive doesn't wipe its library.
     for (const [id, it] of this.items) {
-      if (!seen.has(id) && okRoots.some((r) => sameDir(r, it.root))) {
+      if (!seen.has(id) && okRoots.some((r) => r.photos === (it.kind === 'image') && sameDir(r.root, it.root))) {
         this._dropCover(it);
         this.items.delete(id);
       }
@@ -382,6 +453,9 @@ class Library {
       await fsp.writeFile(path.join(this.coverDir, `${id}.jpg`), data);
       it.cf = 'jpg';
       it.cv = (it.cv || 0) + 1;
+      // How big the thumbnail is (its longer side), so the page can tell when a sharper one is worth making.
+      if (Number.isFinite(meta.size) && meta.size >= 64 && meta.size <= 4096) it.ts = Math.round(meta.size);
+      else it.ts = undefined;
     }
     for (const k of ['duration', 'width', 'height']) if (Number.isFinite(meta[k]) && meta[k] > 0) it[k] = meta[k];
     this._bump();

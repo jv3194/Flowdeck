@@ -14,12 +14,12 @@ async function req(method, url, body) {
 }
 
 export const api = {
-  library: (rev) => req('GET', rev == null ? '/api/library' : `/api/library?rev=${rev}`),
+  library: (rev, { lite = false } = {}) => req('GET', rev == null ? '/api/library' : `/api/library?rev=${rev}${lite ? '&lite=1' : ''}`),
   prefs: () => req('GET', '/api/prefs'),
   savePrefs: (patch) => req('PUT', '/api/prefs', patch),
   browse: (path) => req('GET', `/api/fs?path=${encodeURIComponent(path || '')}`),
-  addRoot: (path) => req('POST', '/api/roots', { path }),
-  removeRoot: (path) => req('DELETE', '/api/roots', { path }),
+  addRoot: (path, photos = false) => req('POST', '/api/roots', { path, photos }),
+  removeRoot: (path, photos = false) => req('DELETE', '/api/roots', { path, photos }),
   scan: () => req('POST', '/api/scan'),
   meta: (id, meta) => req('POST', `/api/meta/${id}`, meta),
   // Online artwork and metadata (see server/enrich.js)
@@ -28,13 +28,19 @@ export const api = {
   undoFiles: (ids) => req('POST', '/api/meta/undo', { ids }),
   candidates: (query) => req('POST', '/api/meta/candidates', query),
   applyMatch: (body) => req('POST', '/api/meta/apply', body),
+  // Per-song identification: start a lookup, poll it, cancel it, and save what the user approved (see server/songs.js)
+  songsIdentify: (ids) => req('POST', '/api/songs/identify', { ids }),
+  songs: () => req('GET', '/api/songs'),
+  songsCancel: () => req('POST', '/api/songs/cancel'),
+  songsApply: (changes) => req('POST', '/api/songs/apply', { changes }),
   clearFetched: (ids) => req('POST', '/api/meta/clear', { ids }),
   setTmdbKey: (key) => req('POST', '/api/meta/key', { key }),
   // Subtitles: the tracks a video has (files beside it, text tracks inside it), and one track's cues
   subtitleTracks: (id) => req('GET', `/api/subs/${id}`),
   subtitleCues: (id, key) => req('GET', `/api/subs/${id}/${key}`),
   // Videos the browser can't decode are converted on the fly with ffmpeg (see server/transcode.js)
-  play: (id, caps, force = false) => req('GET', `/api/play/${id}?caps=${encodeURIComponent(caps)}${force ? '&force=1' : ''}`),
+  play: (id, caps, force = false, audio = null) => req('GET', `/api/play/${id}?caps=${encodeURIComponent(caps)}${force ? '&force=1' : ''}${audio != null ? `&audio=${audio}` : ''}`),
+  audioTracks: (id) => req('GET', `/api/audio/${id}`),
   ffmpegStatus: () => req('GET', '/api/ffmpeg'),
   ffmpegInstall: () => req('POST', '/api/ffmpeg/install'),
   ffmpegRemove: () => req('POST', '/api/ffmpeg/remove'),
@@ -48,6 +54,6 @@ export const api = {
 
 export const mediaUrl = (id) => `/media/${id}`;
 /** A converted stream starting `t` seconds in. The server works the plan out again from `caps`. */
-export const convertUrl = (id, t, caps, force = false) => `/convert/${id}?t=${Math.max(0, t).toFixed(3)}&caps=${encodeURIComponent(caps)}${force ? '&force=1' : ''}`;
+export const convertUrl = (id, t, caps, force = false, audio = null) => `/convert/${id}?t=${Math.max(0, t).toFixed(3)}&caps=${encodeURIComponent(caps)}${force ? '&force=1' : ''}${audio != null ? `&audio=${audio}` : ''}`;
 /** `v` is the item's cover version; it changes when the cover does, which busts the browser cache. */
 export const coverUrl = (id, v) => (v ? `/cover/${id}?v=${v}` : `/cover/${id}`);

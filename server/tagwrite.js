@@ -1,5 +1,7 @@
 'use strict';
-// Writes fetched details (year, genre, album art) into MP3 (ID3v2) and FLAC files.
+// Writes details into MP3 (ID3v2) and FLAC files: fetched year, genre and album art (only ever added when missing), and
+// on request fields the user has approved (`set`: title, artist, album, album artist, track, year, genre), which replace
+// what the file says.
 //
 // Safety rules, because this edits the user's own files:
 //   * only the tag header is rewritten; every audio byte is copied as-is
@@ -12,7 +14,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { makeReader } = require('./tags');
+const { decodeText, makeReader } = require('./tags');
 
 const fsp = fs.promises;
 const PAD = 1024; // padding left after the new header
@@ -66,6 +68,12 @@ async function readId3(rd) {
   return { ver, headerLen, frames };
 }
 
+// Fields the user may have replaced, and where each one lives in the two formats.
+const ID3_SET = { title: 'TIT2', artist: 'TPE1', album: 'TALB', albumArtist: 'TPE2', genre: 'TCON' };
+const FLAC_SET = { title: 'TITLE', artist: 'ARTIST', album: 'ALBUM', albumArtist: 'ALBUMARTIST', genre: 'GENRE' };
+const frameText = (f) => (f.data.length > 1 ? decodeText(f.data.subarray(1), f.data[0]).replace(/\u0000+$/, '').trim() : '');
+const trackText = (set) => (set.track ? `${set.track}${set.trackCount ? `/${set.trackCount}` : ''}` : '');
+
 const hasText = (frames, ...ids) => frames.some((f) => ids.includes(f.id) && f.data.length > 1);
 
 function textData(ver, text) {
@@ -80,11 +88,25 @@ function encodeFrame(ver, id, flags, data) {
   return Buffer.concat([Buffer.from(id, 'latin1'), ver === 4 ? synchsafeOut(data.length) : be32(data.length), flags, data]);
 }
 
-function buildId3(parsed, { year, genre, image }, replaceArt) {
+function buildId3(parsed, { year, genre, image, set }, replaceArt) {
   const ver = parsed.ver;
   let frames = parsed.frames.slice();
   const added = [];
   const NOFLAGS = Buffer.alloc(2);
+
+  if (set) {
+    // Values the user approved replace what is there; a value that is already right changes nothing.
+    const put = (ids, value) => {
+      if (!value) return;
+      const current = frames.find((f) => ids.includes(f.id));
+      if (current && frameText(current) === value) return;
+      frames = frames.filter((f) => !ids.includes(f.id));
+      added.push(encodeFrame(ver, ids[0], NOFLAGS, textData(ver, value)));
+    };
+    for (const [key, id] of Object.entries(ID3_SET)) put([id], set[key]);
+    put(['TRCK'], trackText(set));
+    if (set.year) put(ver === 4 ? ['TDRC', 'TYER'] : ['TYER', 'TDRC'], String(set.year)); // the first id is the one written
+  }
 
   if (replaceArt && image) frames = frames.filter((f) => f.id !== 'APIC');
   if (year && !hasText(frames, 'TYER', 'TDRC')) {
@@ -147,12 +169,26 @@ function pictureBlock(image) {
   return Buffer.concat([be32(3), be32(mime.length), mime, be32(0), be32(0), be32(0), be32(0), be32(0), be32(image.data.length), image.data]); // front cover, no description, size unknown
 }
 
-function buildFlac(parsed, { year, genre, image }, replaceArt) {
+function buildFlac(parsed, { year, genre, image, set }, replaceArt) {
   let blocks = parsed.blocks.filter((b) => b.type !== 1); // padding is re-added at the end
   let changed = false;
 
   const at = blocks.findIndex((b) => b.type === 4);
   const vorbis = at >= 0 ? parseVorbis(blocks[at].data) : { vendor: 'Flowdeck', comments: [] };
+  if (set) {
+    const put = (key, value, alias = []) => {
+      if (!value) return;
+      const names = [key, ...alias];
+      const mine = vorbis.comments.filter((c) => names.some((n) => c.toUpperCase().startsWith(`${n}=`)));
+      if (mine.length === 1 && mine[0].slice(mine[0].indexOf('=') + 1) === value) return;
+      vorbis.comments = vorbis.comments.filter((c) => !mine.includes(c));
+      vorbis.comments.push(`${key}=${value}`);
+      changed = true;
+    };
+    for (const [k, key] of Object.entries(FLAC_SET)) put(key, set[k]);
+    put('TRACKNUMBER', trackText(set));
+    put('DATE', set.year && String(set.year), ['YEAR']);
+  }
   const lacks = (re) => !vorbis.comments.some((c) => re.test(c));
   if (year && lacks(/^(date|year)=./i)) { vorbis.comments.push(`DATE=${year}`); changed = true; }
   if (genre && lacks(/^genre=./i)) { vorbis.comments.push(`GENRE=${genre}`); changed = true; }
@@ -229,7 +265,8 @@ async function hashFrom(file, start) {
 
 /**
  * Replace the first `oldLen` bytes of `file` with `newHeader`, keeping everything after them byte-for-byte.
- * `journal(newLen)` runs after the new file has been verified and before it replaces the original.
+ * `journal(newLen)` runs after the new file has been verified and before it replaces the original. It may return
+ * a function that takes the record back; that runs if the swap then fails, so the journal never lists an edit that didn't happen.
  */
 async function rewriteHeader(file, newHeader, oldLen, { journal, verifyHeader } = {}) {
   const tmp = `${file}.flowdeck-tmp`;
@@ -257,14 +294,17 @@ async function rewriteHeader(file, newHeader, oldLen, { journal, verifyHeader } 
     const after = await hashFrom(tmp, newHeader.length);
     if (after.digest !== before.digest || after.length !== before.length) throw new Error('The audio did not copy exactly, so the file was left alone');
     if (verifyHeader && !(await verifyHeader(tmp))) throw new Error('The new tag could not be read back, so the file was left alone');
-    if (journal) await journal(newHeader.length);
+    const takeBack = journal ? await journal(newHeader.length) : null;
     // Antivirus or the search indexer can hold a file for a moment on Windows, so retry the swap briefly.
     for (let attempt = 1; ; attempt++) {
       try {
         await fsp.rename(tmp, file); // atomic replace
         break;
       } catch (e) {
-        if (attempt >= 4 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e;
+        if (attempt >= 4 || !['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) {
+          if (typeof takeBack === 'function') await takeBack().catch(() => {}); // the file was never changed
+          throw e;
+        }
         await new Promise((r) => setTimeout(r, 250 * attempt));
       }
     }

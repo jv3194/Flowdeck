@@ -45,14 +45,23 @@ function similarity(a, b) {
 // ------------------------------------------------------------------ video names
 
 const JUNK = /[\s.(\[_-](2160p|1080[pi]|720p|576p|480p|4k|uhd|hdr10?|dv|bluray|blu-ray|bdrip|brrip|web-?dl|web-?rip|webrip|hdtv|dvdrip|dvdscr|hdrip|x264|x265|h\.?264|h\.?265|hevc|xvid|divx|aac|ac3|eac3|dts|ddp?5\.1|remux|proper|repack|extended|unrated|directors?[.\s]cut|imax|multi|dual|internal)([\s.)\]_-]|$).*$/i;
-const CAMERA = /^(vid|mov|img|pxl|dsc|mvi|dji|gopr|screen[ _-]?recording|video)[ _-]?\d|^\d{8}[ _-]\d{4,6}$|^[\d_ -]+$/i;
+const CAMERA = /^(vid|mov|img|pxl|dsc|mvi|dji|gopr|screen[ _-]?recording|video)[ _-]?\d|^\d{8}[ _-]\d{4,6}$|^(?=.*[_ -])[\d_ -]+$|^\d{6,}$/i; // a short bare number ("1917", "300") is a movie title, not a camera file
 const SEASON_DIR = /^(season|series|s)[ ._-]?(\d{1,2})$/i;
 
 const clean = (s) => s.replace(/[._]+/g, ' ').replace(/\s+/g, ' ').replace(/^[\s\-–:,]+|[\s\-–:,]+$/g, '');
 const stripYear = (s) => s.replace(/[(\[]\s*(19|20)\d{2}\s*[)\]]\s*$/, '').trim();
 
-function episode(show, season, number, tail) {
+/** "Doctor Who (2005)", "Doctor Who [2005]" or "Doctor Who 2005" → { name: 'Doctor Who', year: 2005 }. A name that is only a number ("1923") keeps it. */
+function splitYear(s) {
+  const m = /^(.+?)[\s._-]*(?:[(\[]\s*((?:19|20)\d{2})\s*[)\]]|\s((?:19|20)\d{2}))\s*$/.exec(s);
+  return m ? { name: m[1].trim(), year: Number(m[2] || m[3]) } : { name: s, year: undefined };
+}
+
+const squash = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+function episode(show, season, number, tail, year) {
   const out = { type: 'episode', title: show, show, season: Number(season), episode: Number(number) };
+  if (year) out.year = year; // tells remakes apart: Doctor Who (1963) and (2005)
   const hint = clean(tail.replace(JUNK, ' '));
   if (hint) out.epHint = hint;
   return out;
@@ -83,17 +92,19 @@ function parseVideoName(file, root = path.dirname(file)) {
     /^(.*?)[\s._-]*\b(\d{1,2})x(\d{2,3})\b(.*)$/i.exec(spaced) ||
     /^(.*?)[\s._-]*\bSeason[\s._-]?(\d{1,2})[\s._-]*Episode[\s._-]?(\d{1,3})(.*)$/i.exec(spaced);
   if (tv) {
-    let show = stripYear(clean(tv[1]));
-    if (!show) show = stripYear(folderTitle(dir, root));
-    return episode(show, tv[2], tv[3], tv[4]);
+    let { name: show, year } = splitYear(clean(tv[1]));
+    const folder = splitYear(folderTitle(dir, root));
+    if (!show) ({ name: show, year } = folder);
+    else if (!year && folder.year && squash(folder.name) === squash(show)) year = folder.year; // "Doctor Who (2005)/S01E01.mkv"
+    return episode(show, tv[2], tv[3], tv[4], year);
   }
 
   // "03 - Episode Title.mkv" inside "Show/Season 2/"
   const inSeason = SEASON_DIR.exec(path.basename(dir));
   const lead = /^(?:E|Ep\.?\s?)?(\d{1,3})[\s._-]+(.+)$/i.exec(spaced);
   if (inSeason && lead) {
-    const show = stripYear(folderTitle(path.dirname(dir), root));
-    if (show) return episode(show, inSeason[2], lead[1], lead[2]);
+    const { name: show, year } = splitYear(folderTitle(path.dirname(dir), root));
+    if (show) return episode(show, inSeason[2], lead[1], lead[2], year);
   }
 
   if (CAMERA.test(base)) return { type: 'clip', title: clean(base) };

@@ -25,6 +25,8 @@ export class Flow {
     this.nodes = new Map();
     this.raf = 0;
     this.last = 0;
+    this.W = Infinity; // the stage's width, once known: used to skip covers that are off to the sides
+    this.dragging = false;
     this.bind();
     new ResizeObserver(() => this.layout()).observe(root);
   }
@@ -32,6 +34,8 @@ export class Flow {
   get index() { return clamp(Math.round(this.target), 0, Math.max(0, this.items.length - 1)); }
   get item() { return this.items[this.index]; }
   get focusedNode() { return this.nodes.get(this.index) || null; }
+  /** True while the shelf is gliding or being dragged: a good moment to leave other work (thumbnails) for later. */
+  get moving() { return this.mode === 'flow' && (this.dragging || this.pos !== this.target); }
 
   setShape(ratio) {
     this.ratio = ratio;
@@ -89,18 +93,38 @@ export class Flow {
     this.grid.textContent = '';
     this.nodes.clear();
     this.focus = -1;
+    this.io?.disconnect();
     if (this.mode === 'grid') {
+      // A big shelf must not cost a pause to open: the cards start as empty boxes (they have a size already, see the
+      // stylesheet) and get their cover and caption as they scroll near the screen.
+      this.io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          this.io.unobserve(e.target);
+          this.fill(e.target);
+        }
+      }, { root: this.grid, rootMargin: '500px 0px' });
       const frag = document.createDocumentFragment();
       this.items.forEach((_, i) => {
-        const node = this.makeNode(i, true);
+        const node = h('div', { class: 'card', 'data-i': i });
         this.nodes.set(i, node);
         frag.append(node);
       });
       this.grid.append(frag);
+      for (const node of this.nodes.values()) this.io.observe(node);
     }
     this.layout();
     this.changed(true);
     this.kick();
+  }
+
+  /** Put the cover and caption into a grid card that was made empty. */
+  fill(node) {
+    const item = this.items[Number(node.dataset.i)];
+    if (!item || node.firstChild) return;
+    const cover = this.hooks.renderCover(item, true);
+    cover.append(h('div', { class: 'shade' }));
+    node.append(cover, h('div', { class: 'cap' }, this.hooks.caption(item)));
   }
 
   makeNode(i, lazy) {
@@ -114,6 +138,7 @@ export class Flow {
     const W = this.root.clientWidth;
     const H = this.root.clientHeight;
     if (!W || !H) return;
+    this.W = W;
     this.cw = Math.max(110, Math.min(W * 0.33, H * 0.7 * this.ratio));
     this.stage.style.setProperty('--cw', `${this.cw}px`);
     this.stage.style.setProperty('--ch', `${this.cw / this.ratio}px`);
@@ -185,26 +210,40 @@ export class Flow {
     if (!n) return;
     const lo = Math.max(0, Math.ceil(this.pos - REACH));
     const hi = Math.min(n - 1, Math.floor(this.pos + REACH));
+    // Every card on screen costs the browser compositing time each time anything behind it changes, so only the ones
+    // that can actually be seen get a node: the rest (off the sides of the window, or faded out) are left out entirely.
+    const show = new Map();
+    for (let i = lo; i <= hi; i++) {
+      const p = placement(this.style, i - this.pos, this.cw, this.tilt);
+      if (this.visible(p)) show.set(i, p);
+    }
     for (const [i, node] of this.nodes) {
-      if (i < lo || i > hi) {
+      if (!show.has(i)) {
         node.remove();
         this.nodes.delete(i);
       }
     }
-    for (let i = lo; i <= hi; i++) {
+    for (const [i, p] of show) {
       let node = this.nodes.get(i);
       if (!node) {
         node = this.makeNode(i, false);
         this.nodes.set(i, node);
         this.stage.append(node);
       }
-      this.place(node, i - this.pos);
+      this.place(node, i - this.pos, p);
     }
   }
 
-  place(node, d) {
+  /** Whether a card at this placement shows at all: not faded out, and not wholly beyond the sides of the stage. */
+  visible(p) {
+    if (p.opacity < 0.03) return false;
+    if (this.style === 'fan') return true; // fan cards swing about a distant point, so x alone doesn't say where they are
+    const k = 1500 / Math.max(400, 1500 - p.z); // the stage's perspective pulls cards that are pushed back toward the middle
+    return Math.abs(p.x) * k - (this.cw * p.scale * k) / 2 < this.W / 2 + 12;
+  }
+
+  place(node, d, p = placement(this.style, d, this.cw, this.tilt)) {
     const ad = Math.abs(d);
-    const p = placement(this.style, d, this.cw, this.tilt);
     const st = node.style;
     st.transform = `translate3d(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px,${p.z.toFixed(1)}px) rotate(${p.rotZ.toFixed(2)}deg) rotateY(${p.rotY.toFixed(2)}deg) scale(${p.scale.toFixed(3)})`;
     st.transformOrigin = p.origin;
@@ -229,6 +268,7 @@ export class Flow {
       const dx = e.clientX - drag.x;
       if (!drag.moved && Math.abs(dx) > 6) {
         drag.moved = true;
+        this.dragging = true;
         st.setPointerCapture(e.pointerId);
       }
       if (!drag.moved) return;
@@ -242,6 +282,7 @@ export class Flow {
       if (!drag) return;
       const d = drag;
       drag = null;
+      this.dragging = false;
       if (!d.moved) {
         const card = e.target.closest?.('.card');
         if (!card) return;
@@ -256,7 +297,7 @@ export class Flow {
       this.moveTo(Math.round(this.target - (v * 220) / (this.cw * 0.5)));
     };
     st.addEventListener('pointerup', end);
-    st.addEventListener('pointercancel', () => { drag = null; this.moveTo(this.index); });
+    st.addEventListener('pointercancel', () => { drag = null; this.dragging = false; this.moveTo(this.index); });
 
     let snap = 0;
     st.addEventListener('wheel', (e) => {

@@ -2,7 +2,7 @@
 // Online metadata and artwork lookups.
 //   music  : MusicBrainz + Cover Art Archive, then iTunes Search   (no key)
 //   shows  : TVMaze                                                (no key)
-//   movies : TMDB                                                  (free personal API key)
+//   movies : TMDB (free personal API key), plus iTunes Search      (no key; works alone without a TMDB key)
 // Each search returns candidates { ref, title, subtitle, year, thumb, score, data }. `data` stays on the
 // server; the UI only ever sends `ref` back, and the server re-resolves it, so the client can't make us
 // fetch an arbitrary URL.
@@ -15,7 +15,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Minimum spacing between requests per host (MusicBrainz asks for 1/s; iTunes allows ~20/min).
 const GAPS = { 'musicbrainz.org': 1100, 'itunes.apple.com': 3200, 'api.tvmaze.com': 600, 'coverartarchive.org': 400, 'api.themoviedb.org': 120 };
 // Best-match scores needed before an automatic (unattended) lookup is applied.
-const ACCEPT = { album: 0.75, movie: 0.78, show: 0.8 };
+const ACCEPT = { album: 0.75, movie: 0.78, show: 0.8, song: 0.82 };
 const MAX_IMAGE = 8 * 1024 * 1024;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -248,7 +248,7 @@ function createProviders({ fetch: fetchFn = globalThis.fetch, tmdbBase = process
 
   const poster = (p, size) => (p ? `https://image.tmdb.org/t/p/${size}${p}` : null);
 
-  async function movieCandidates({ title, year }) {
+  async function tmdbMovies({ title, year }) {
     const base = { query: title, include_adult: 'false' };
     let d = await tmdb('/search/movie', year ? { ...base, year } : base);
     if (!d?.results?.length && year) d = await tmdb('/search/movie', base);
@@ -268,13 +268,65 @@ function createProviders({ fetch: fetchFn = globalThis.fetch, tmdbBase = process
           title: r.title, year: ry, summary: r.overview || undefined,
           rating: r.vote_average ? Math.round(r.vote_average * 10) / 10 : undefined,
           genres: (r.genre_ids || []).map((i) => genres[i]).filter(Boolean),
-          artUrls: [poster(r.poster_path, 'w500')].filter(Boolean),
+          artUrls: [poster(r.poster_path, 'w780')].filter(Boolean),
         },
       };
     }).sort((a, b) => b.score - a.score);
   }
 
+  function itunesMovieData(r) {
+    const runtime = Math.round((r.trackTimeMillis || 0) / 60000);
+    return {
+      title: r.trackName, year: year4(r.releaseDate), summary: r.longDescription || r.shortDescription || undefined,
+      genres: r.primaryGenreName ? [r.primaryGenreName] : [], runtime: runtime || undefined,
+      artUrls: r.artworkUrl100 ? [bigArt(r.artworkUrl100, 1000)] : [], // a poster is shown large: ask for a sharp one
+    };
+  }
+
+  async function itunesMovies({ title, year }) {
+    const d = await json(`https://itunes.apple.com/search?term=${enc(title)}&media=movie&entity=movie&limit=10`);
+    return (d?.results || []).filter((r) => r.trackId && r.trackName).map((r) => {
+      const data = itunesMovieData(r);
+      let score = similarity(title, r.trackName);
+      if (year && data.year) score += data.year === year ? 0.12 : Math.abs(data.year - year) === 1 ? 0.04 : -0.25;
+      return {
+        ref: { provider: 'itunes', kind: 'movie', id: r.trackId },
+        title: r.trackName,
+        subtitle: [data.year, (data.summary || '').slice(0, 90), 'iTunes'].filter(Boolean).join(' · '),
+        year: data.year,
+        thumb: r.artworkUrl100,
+        score: clamp01(score),
+        data,
+      };
+    }).sort((a, b) => b.score - a.score);
+  }
+
+  const movieKey = (c) => `${String(c.title).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')}|${c.year || ''}`;
+
+  /**
+   * Candidates from every movie source, best first. TMDB goes first so it wins ties (it has ratings), and an iTunes
+   * entry for a film TMDB already returned is dropped. Without a TMDB key, iTunes answers alone.
+   * Fails only if every source failed.
+   */
+  async function movieCandidates(q) {
+    const jobs = [itunesMovies(q)];
+    if (getTmdbKey()) jobs.unshift(tmdbMovies(q));
+    const settled = await Promise.allSettled(jobs);
+    if (settled.every((s) => s.status === 'rejected')) throw settled[settled.length - 1].reason;
+    const seen = new Set();
+    return settled
+      .flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
+      .filter((c) => !seen.has(movieKey(c)) && seen.add(movieKey(c)))
+      .sort((a, b) => b.score - a.score);
+  }
+
   async function resolveMovie(ref) {
+    if (ref.provider === 'itunes') {
+      const d = await json(`https://itunes.apple.com/lookup?id=${Number(ref.id)}`);
+      const r = d?.results?.[0];
+      if (!r) throw new Error('Movie not found');
+      return itunesMovieData(r);
+    }
     if (ref.provider !== 'tmdb') throw new Error('Unknown source');
     const r = await tmdb(`/movie/${Number(ref.id)}`);
     if (!r) throw new Error('Movie not found');
@@ -282,7 +334,7 @@ function createProviders({ fetch: fetchFn = globalThis.fetch, tmdbBase = process
       title: r.title, year: year4(r.release_date), summary: r.overview || undefined,
       rating: r.vote_average ? Math.round(r.vote_average * 10) / 10 : undefined,
       genres: (r.genres || []).map((g) => g.name), runtime: r.runtime || undefined,
-      artUrls: [poster(r.poster_path, 'w500')].filter(Boolean),
+      artUrls: [poster(r.poster_path, 'w780')].filter(Boolean),
     };
   }
 
@@ -327,7 +379,81 @@ function createProviders({ fetch: fetchFn = globalThis.fetch, tmdbBase = process
     return (d || []).map((e) => ({ season: e.season, episode: e.number, title: e.name, airdate: e.airdate || undefined, runtime: e.runtime || undefined, summary: stripHtml(e.summary) || undefined }));
   }
 
-  return { albumCandidates, mbAlbums, itunesAlbums, releaseGroupInfo, resolveAlbum, movieCandidates, resolveMovie, showCandidates, resolveShow, showEpisodes, downloadImage, firstImage, testTmdbKey };
+
+  // ------------------------------------------------------------------- songs
+
+  const clip = (s, n = 300) => String(s || '').trim().slice(0, n);
+
+  function songScore({ title, artist, album }, got) {
+    const t = similarity(title, got.title);
+    let score = artist ? 0.62 * t + 0.38 * similarity(artist, got.artist) : 0.9 * t;
+    if (album && got.album) score += 0.05 * similarity(album, got.album);
+    return clamp01(score);
+  }
+
+  /** Songs matching a title (and artist, if known) from iTunes: it gives the album, track number, year, genre and artwork in one answer. */
+  async function itunesSongs(q) {
+    const term = [q.artist, q.title].filter(Boolean).join(' ');
+    const data = await json(`https://itunes.apple.com/search?term=${enc(term)}&media=music&entity=song&limit=10`);
+    return (data?.results || []).filter((r) => r.trackName && r.artistName).map((r) => {
+      const got = {
+        title: clip(r.trackName), artist: clip(r.artistName), album: clip(r.collectionName),
+        albumArtist: clip(r.collectionArtistName || ''), track: r.trackNumber || undefined, trackCount: r.trackCount || undefined,
+        disc: r.discNumber || undefined, year: year4(r.releaseDate), genre: clip(r.primaryGenreName, 60) || undefined,
+      };
+      return { ...got, source: 'iTunes', score: songScore(q, got), artUrl: r.artworkUrl100 ? bigArt(r.artworkUrl100) : undefined };
+    });
+  }
+
+  /** The same from MusicBrainz recordings: no genre, but a good second opinion for songs iTunes doesn't know. */
+  async function mbSongs(q) {
+    const query = `recording:"${lucene(q.title)}"${q.artist ? ` AND artist:"${lucene(q.artist)}"` : ''}`;
+    const data = await json(`https://musicbrainz.org/ws/2/recording/?query=${enc(query)}&fmt=json&limit=8`);
+    const out = [];
+    for (const r of data?.recordings || []) {
+      const artist = (r['artist-credit'] || []).map((c) => c.name + (c.joinphrase || '')).join('');
+      const rel = (r.releases || []).find((x) => x.status === 'Official') || (r.releases || [])[0];
+      const got = {
+        title: clip(r.title), artist: clip(artist), album: clip(rel?.title), year: year4(rel?.date),
+        track: Number(rel?.media?.[0]?.track?.[0]?.number) || undefined, trackCount: rel?.['track-count'] || undefined,
+      };
+      if (!got.title || !got.artist) continue;
+      out.push({ ...got, source: 'MusicBrainz', score: songScore(q, got) });
+    }
+    return out;
+  }
+
+  /**
+   * Candidates for one song, best first. iTunes first; MusicBrainz only when iTunes has nothing convincing, because
+   * it is the slower of the two. Fails only when every source it tried failed.
+   */
+  async function songCandidates(q) {
+    let found = [];
+    let failure = null;
+    try {
+      found = await itunesSongs(q);
+    } catch (e) {
+      failure = e;
+    }
+    if (!found.some((c) => c.score >= ACCEPT.song)) {
+      try {
+        found = found.concat(await mbSongs(q));
+        failure = null;
+      } catch (e) {
+        failure = failure || e;
+      }
+    }
+    if (failure && !found.length) throw failure;
+    // The same song from both sources is one candidate: keep the one with more to say.
+    const seen = new Map();
+    for (const c of found.sort((a, b) => b.score - a.score)) {
+      const key = `${c.title}|${c.artist}|${c.album}`.toLowerCase();
+      if (!seen.has(key)) seen.set(key, c);
+    }
+    return [...seen.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+  }
+
+  return { songCandidates, itunesSongs, mbSongs, albumCandidates, mbAlbums, itunesAlbums, releaseGroupInfo, resolveAlbum, movieCandidates, resolveMovie, showCandidates, resolveShow, showEpisodes, downloadImage, firstImage, testTmdbKey };
 }
 
 module.exports = { createProviders, ACCEPT, IMAGE_HOSTS };

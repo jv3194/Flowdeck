@@ -1,7 +1,7 @@
 // The theme picker and the Customize sheet. All the rules (limits, saving, importing) live in themes.js;
 // this file only lays them out as lists you can move through with the keyboard, a gamepad or the mouse.
 import { LAYOUTS } from './layouts.js';
-import { BACKGROUNDS, FONTS, LIMITS, swatch } from './themes.js';
+import { BACKGROUNDS, FONTS, FRAMES, LIMITS, PARTICLE_BACKGROUNDS, swatch } from './themes.js';
 import { ListSheet, TextPrompt, toast } from './ui.js';
 import { clamp, h } from './util.js';
 
@@ -85,6 +85,10 @@ export function openCustomize(app) {
       gauge('Accent strength', { ...range('sat'), step: 5, get: () => cur().accent.sat, set: (v) => tm.tweak({ accent: { sat: v } }), fmt: (v) => `${v}%`, disabled: !fixed, edited: tweaked('accent', 'sat') }),
       gauge('Brightness', { ...range('brightness'), step: 5, get: () => cur().brightness, set: (v) => tm.tweak({ brightness: v }), fmt: (v) => `${v}%`, edited: tweaked('brightness') }),
       gauge('Glass', { ...range('glass'), step: 5, get: () => cur().glass, set: (v) => tm.tweak({ glass: v }), fmt: (v) => `${v}%`, edited: tweaked('glass') }),
+      choice('Cover frame', { get: () => cur().frame, set: (v) => tm.tweak({ frame: v }), options: FRAMES.map(([k]) => k), fmt: (v) => nameOf(FRAMES, v), edited: tweaked('frame') }),
+      gauge('Glow', { ...range('glow'), step: 10, get: () => cur().glow, set: (v) => tm.tweak({ glow: v }), fmt: (v) => (v === 0 ? 'None' : `${v}%`), edited: tweaked('glow') }),
+      gauge('Film grain', { ...range('grain'), step: 5, get: () => cur().grain, set: (v) => tm.tweak({ grain: v }), fmt: (v) => (v === 0 ? 'Off' : `${v}%`), edited: tweaked('grain') }),
+      gauge('Particles', { ...range('density'), step: 25, get: () => cur().density, set: (v) => tm.tweak({ density: v }), fmt: (v) => `${v}%`, disabled: !PARTICLE_BACKGROUNDS.includes(t.background), edited: tweaked('density') }),
       gauge('Corners', { ...range('corners'), step: 2, get: () => cur().corners, set: (v) => tm.tweak({ corners: v }), fmt: (v) => `${v} px`, edited: tweaked('corners') }),
       choice('Reflections', { get: () => cur().reflection, set: (v) => tm.tweak({ reflection: v }), options: [true, false], fmt: (v) => (v ? 'On' : 'Off'), edited: tweaked('reflection') }),
       gauge('Motion', { ...range('motion'), step: 10, get: () => cur().motion, set: (v) => tm.tweak({ motion: v }), fmt: (v) => (v === 0 ? 'Still' : `${v}%`), edited: tweaked('motion') }),

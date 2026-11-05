@@ -1,6 +1,6 @@
 // Chrome shared by every screen: status bar, hint bar, toasts, sliders and list sheets.
 import { api } from './api.js';
-import { clamp, glyph, h, icon, keycap } from './util.js';
+import { clamp, glyph, h, icon, keycap, pointerMoved } from './util.js';
 
 // ------------------------------------------------------------- status bar
 
@@ -12,9 +12,15 @@ export class StatusBar {
     this.wifi = h('div', { class: 'stat' }, icon('wifi'));
     this.battery = h('div', { class: 'stat', style: { display: 'none' } }, h('span', { class: 'battery' }, h('i')), h('span'));
     this.clock = h('div', { class: 'clock' });
+    // Clickable versions of what the keyboard does: Esc (back), / (search) and Tab (options).
+    const barBtn = (name, label, action, shown = true) => h('button', { class: 'bar-btn', tabindex: '-1', title: label, 'aria-label': label, style: { display: shown ? '' : 'none' }, onclick: () => app.dispatch(action) }, icon(name));
+    this.backBtn = barBtn('back', 'Back (Esc)', 'back', false);
+    this.searchBtn = barBtn('search', 'Search (/)', 'search', false);
+    this.optionsBtn = barBtn('gear', 'Options (Tab)', 'options');
     el.append(
-      h('div', { class: 'brand' }, h('span', { class: 'logo', html: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>' }), 'Flowdeck'),
-      h('div', { class: 'status-right' }, this.scan, this.wifi, this.battery, this.clock),
+      h('div', { class: 'status-left' }, this.backBtn,
+        h('div', { class: 'brand' }, h('span', { class: 'logo', html: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>' }), 'Flowdeck')),
+      h('div', { class: 'status-right' }, this.searchBtn, this.optionsBtn, this.scan, this.wifi, this.battery, this.clock),
     );
     this.tick();
     setInterval(() => this.tick(), 1000);
@@ -40,6 +46,13 @@ export class StatusBar {
     if (text !== this.clock.textContent) this.clock.textContent = text;
   }
 
+  /** Which buttons make sense right now: Back when there is somewhere to go back to, Search on the shelves, and neither tool while a sheet is open. */
+  setNav({ back, search, options }) {
+    this.backBtn.style.display = back ? '' : 'none';
+    this.searchBtn.style.display = search ? '' : 'none';
+    this.optionsBtn.style.display = options ? '' : 'none';
+  }
+
   setScan(on, text = '') {
     this.scan.style.display = on ? '' : 'none';
     this.scanText.textContent = text;
@@ -48,9 +61,13 @@ export class StatusBar {
 
 // --------------------------------------------------------------- hints bar
 
+// A hint whose key does something obvious can be clicked instead: it runs the same action as pressing the key.
+const HINT_ACTION = { Esc: 'back', Tab: 'options', Enter: 'confirm', Space: 'playpause', V: 'view', '/': 'search' };
+
 export class Hints {
-  constructor(el) {
+  constructor(el, onAct) {
     this.el = el;
+    this.onAct = onAct;
     this.list = [];
     this.device = 'kbd';
   }
@@ -69,7 +86,10 @@ export class Hints {
     this.el.textContent = '';
     for (const hint of this.list) {
       const key = this.device === 'pad' ? glyph(hint.pad) : keycap(hint.key);
-      this.el.append(h('div', { class: 'hint' }, key, h('span', {}, hint.label)));
+      const act = this.onAct && HINT_ACTION[hint.key];
+      this.el.append(act
+        ? h('button', { class: 'hint click', tabindex: '-1', title: hint.label, onclick: () => this.onAct(act) }, key, h('span', {}, hint.label))
+        : h('div', { class: 'hint' }, key, h('span', {}, hint.label)));
     }
   }
 }
@@ -195,7 +215,7 @@ export class ListSheet {
         meter,
         it.value != null || it.dot ? h('span', { class: 'val' }, it.dot ? h('span', { class: 'dot', style: { background: it.dot } }) : null, it.value) : null);
       row.addEventListener('click', () => { this.sel = i; this.confirm(); });
-      row.addEventListener('pointermove', () => { if (this.sel !== i) { this.sel = i; this.paint(false); this.selected(); } });
+      row.addEventListener('pointermove', (e) => { if (pointerMoved(e) && this.sel !== i) { this.sel = i; this.paint(false); this.selected(); } });
       this.list.append(row);
     });
     if (!items.length) this.list.append(h('li', { class: 'note' }, 'Nothing here'));
@@ -291,6 +311,7 @@ export class TextPrompt {
 
   onAction(a) {
     if (a === 'back') this.close();
+    else if (a === 'confirm') this.submit(); // reached by clicking the "Enter · Save" hint; typing Enter is handled by the field itself
     return true;
   }
 
@@ -341,10 +362,12 @@ export class AboutSheet {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-export function openFolderBrowser(app) {
+/** `photos` picks a folder for the Photos shelf; otherwise it's a music/video folder, and photos in it are ignored. */
+export function openFolderBrowser(app, { photos = false } = {}) {
   let parent = null;
+  const heading = photos ? 'Add a photo folder' : 'Add a folder';
   const sheet = new ListSheet(app, {
-    title: 'Add a folder',
+    title: heading,
     wide: true,
     hints: [
       { pad: 'cross', key: 'Enter', label: 'Open' },
@@ -376,12 +399,12 @@ export function openFolderBrowser(app) {
     const items = [];
     if (data.path) {
       const c = data.counts;
-      const found = [c.audio && plural(c.audio, 'song'), c.video && plural(c.video, 'video'), c.image && plural(c.image, 'photo')].filter(Boolean);
+      const found = (photos ? [c.image && plural(c.image, 'photo')] : [c.audio && plural(c.audio, 'song'), c.video && plural(c.video, 'video')]).filter(Boolean);
       items.push({
-        label: 'Add this folder', icon: 'folderPlus', primary: true, sm: found.length ? `${found.join(' · ')} here` : 'looks inside subfolders too',
+        label: photos ? 'Use this folder for photos' : 'Add this folder', icon: 'folderPlus', primary: true, sm: found.length ? `${found.join(' · ')} here` : 'looks inside subfolders too',
         async action() {
           try {
-            await api.addRoot(data.path);
+            await api.addRoot(data.path, photos);
             toast(`Added ${data.name}`, 'folder');
             app.libraryChanged();
           } catch (e) {
@@ -398,7 +421,7 @@ export function openFolderBrowser(app) {
     for (const d of data.drives || []) items.push({ label: d.name, icon: 'folder', sm: 'Drive', keep: true, action: () => go(d.path) });
     for (const d of data.dirs) items.push({ label: d.name, icon: 'folder', keep: true, action: () => go(d.path) });
     if (data.path && !data.dirs.length) items.push({ label: 'No subfolders', disabled: true });
-    sheet.setItems(items, { title: data.path ? data.name : 'Add a folder', path: data.path });
+    sheet.setItems(items, { title: data.path ? data.name : heading, path: data.path });
   }
 
   app.openLayer(sheet);

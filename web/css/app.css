@@ -102,6 +102,9 @@ img { -webkit-user-drag: none; }
 
 #bg { position: fixed; inset: 0; width: 100%; height: 100%; view-transition-name: bg; }
 #vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 42%, transparent 45%, rgb(var(--vig) / var(--vig-a)) 100%); }
+/* Film grain (a theme setting): a still tile of noise over the backdrop. It never animates, so it costs nothing per frame. */
+#vignette::before { content: ""; position: absolute; inset: 0; opacity: calc(var(--grain, 0) * 0.45); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .7 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+:root[data-mode="light"] #vignette::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .7 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
 #app { position: fixed; inset: 0; display: grid; grid-template-rows: var(--bar-h) minmax(0, 1fr) var(--hint-h); }
 #screens { position: relative; min-height: 0; }
@@ -120,6 +123,13 @@ body.immersive #screens { position: fixed; inset: 0; z-index: 5; }
 .brand .logo { width: 24px; height: 24px; border-radius: 50%; background: radial-gradient(circle at 30% 28%, #fff 0, var(--accent) 38%, var(--accent-deep) 100%); box-shadow: 0 0 18px hsla(var(--hue) 100% 70% / 0.7); display: grid; place-items: center; }
 .brand .logo svg { width: 11px; height: 11px; fill: #fff; margin-left: 1px; }
 .status-right { display: flex; align-items: center; gap: 18px; }
+.status-left { display: flex; align-items: center; gap: 12px; }
+/* Back, Search and Options in the status bar: the mouse's way to what Esc, / and Tab do. */
+.bar-btn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; color: rgb(var(--ink) / 0.9); transition: background 0.2s, transform 0.2s var(--ease), color 0.2s; }
+.bar-btn:hover { background: rgb(var(--ink) / 0.16); color: var(--accent); transform: scale(1.08); }
+.bar-btn:active { transform: scale(0.96); }
+.status-right { gap: 12px; }
+.status-right .stat, .status-right .clock { margin-left: 6px; }
 .stat { display: flex; align-items: center; gap: 6px; opacity: 0.9; font-variant-numeric: tabular-nums; }
 .stat .ic { font-size: 18px; }
 .stat.scan { color: var(--accent); }
@@ -141,15 +151,30 @@ body.immersive #screens { position: fixed; inset: 0; z-index: 5; }
 
 /* -------------------------------------------------------------- home / flow */
 .home { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
-.cats { display: flex; align-items: center; justify-content: center; gap: clamp(18px, 3.4vw, 54px); padding-top: 4px; min-height: 64px; }
-.cat { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 6px; font-size: clamp(14px, 1.45vw, 19px); letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.5; transition: opacity 0.35s var(--ease), transform 0.35s var(--ease); }
+/* Up to six shelves can show (Continue, No artwork and Albums come and go), so the row keeps clear of the PgUp / PgDn boxes and tightens as the window narrows. */
+.cats { display: flex; align-items: center; justify-content: safe center; gap: clamp(10px, 2.4vw, 54px); padding: 4px clamp(100px, 8vw, 140px) 0; min-height: 64px; overflow-x: auto; scrollbar-width: none; }
+.cats::-webkit-scrollbar { display: none; }
+/* The page measures the row (see Home.fitTabs) and adds these in turn while the tabs do not fit. Every tab is a button, so the PgUp / PgDn boxes can go first. */
+.cats.crowded { padding-inline: 14px; } .cats.crowded .shoulder { display: none; }
+.cats.tight { gap: 6px; } .cats.tight .cat { letter-spacing: 0.04em; font-size: clamp(11px, 1.1vw, 15px); gap: 5px; } .cats.tight .cat .ic { display: none; }
+.cats.tiny .cat .count { display: none; }
+.cat { flex: none; white-space: nowrap; position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 4px; font-size: clamp(11px, 1.3vw, 19px); letter-spacing: clamp(0.06em, 0.9vw, 0.16em); text-transform: uppercase; opacity: 0.5; transition: opacity 0.35s var(--ease), transform 0.35s var(--ease); }
 .cat:hover { opacity: 0.8; }
 .cat .ic { font-size: 1.25em; }
 .cat .count { font-size: 0.68em; letter-spacing: 0.06em; padding: 1px 8px; border-radius: 99px; background: var(--fill); }
 .cat.active { opacity: 1; font-weight: 600; transform: scale(1.1); text-shadow: 0 0 22px hsla(var(--hue) 100% 75% / 0.9); }
 :root[data-mode="light"] .cat.active { text-shadow: 0 0 18px hsla(var(--hue) 100% 70% / 0.55); }
 .cat.active::after { content: ""; position: absolute; left: 4px; right: 4px; bottom: -3px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); box-shadow: 0 0 12px var(--accent); }
-.shoulder { position: absolute; top: 50%; transform: translateY(-50%); }
+.shoulder { position: absolute; top: 50%; transform: translateY(-50%); cursor: pointer; }
+.shoulder:hover { filter: brightness(1.3); }
+/* A hint that can be clicked, and the arrows that step through the cover flow. */
+.hint.click { cursor: pointer; padding: 4px 9px; margin: -4px -9px; border-radius: 10px; transition: background 0.2s, color 0.2s; }
+.hint.click:hover { background: rgb(var(--ink) / 0.12); color: var(--text); }
+.flow-arrow { position: absolute; top: 40%; width: 48px; height: 48px; margin-top: -24px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; z-index: 3; color: rgb(var(--ink) / 0.9); background: rgb(var(--ink) / 0.1); border: 1px solid rgb(var(--ink) / 0.22); backdrop-filter: blur(8px); opacity: 0.55; transition: opacity 0.25s, transform 0.25s var(--ease), background 0.25s; }
+.flow-arrow.l { left: clamp(8px, 2vw, 32px); } .flow-arrow.r { right: clamp(8px, 2vw, 32px); }
+.flow-arrow:hover { opacity: 1; background: rgb(var(--ink) / 0.2); transform: scale(1.08); }
+.flow-arrow.off { opacity: 0.12; pointer-events: none; }
+.flow-root.bare .flow-arrow, .home.grid-mode .flow-arrow { display: none; }
 .shoulder.l { left: clamp(16px, 4vw, 70px); } .shoulder.r { right: clamp(16px, 4vw, 70px); }
 .cats { position: relative; }
 
@@ -172,7 +197,11 @@ body.immersive #screens { position: fixed; inset: 0; z-index: 5; }
 .cover .shine { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(128deg, rgba(255, 255, 255, 0.36) 0%, rgba(255, 255, 255, 0.1) 26%, transparent 44%), linear-gradient(0deg, rgba(0, 0, 0, 0.22), transparent 32%); }
 /* Covers away from the centre fade toward the page colour. */
 .cover .shade { position: absolute; inset: 0; background: var(--page); opacity: 0; pointer-events: none; }
-.flow-stage .card.focus .cover { box-shadow: 0 26px 70px hsla(var(--hue) 90% 40% / 0.6), 0 0 100px hsla(var(--hue) 100% 70% / 0.32), inset 0 0 0 1.5px rgba(255, 255, 255, 0.6); }
+/* How far through a video or show you are, and a tick once it is finished. */
+.cover .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: max(4px, calc(var(--cw, 200px) * 0.022)); background: rgba(0, 0, 0, 0.45); pointer-events: none; }
+.cover .pbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-deep), var(--accent)); box-shadow: 0 0 10px var(--accent); }
+.cover .seen { position: absolute; right: 7%; top: 5%; width: calc(var(--cw, 200px) * 0.13); height: calc(var(--cw, 200px) * 0.13); min-width: 20px; min-height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: calc(var(--cw, 200px) * 0.085); color: var(--on-accent); background: linear-gradient(180deg, var(--accent), var(--accent-deep)); box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4); pointer-events: none; }
+.flow-stage .card.focus .cover { box-shadow: 0 26px 70px hsla(var(--hue) 90% 40% / calc(0.6 * var(--glow, 1))), 0 0 100px hsla(var(--hue) 100% 70% / calc(0.32 * var(--glow, 1))), inset 0 0 0 1.5px rgba(255, 255, 255, 0.6); }
 
 .info { position: relative; z-index: 3; text-align: center; padding: 0 clamp(16px, 6vw, 90px) 8px; min-height: clamp(110px, 17vh, 150px); margin-top: calc(var(--info-lift, 0px) * -1); pointer-events: none; }
 .info { transition: transform 0.45s var(--ease); }
@@ -189,10 +218,30 @@ body.immersive #screens { position: fixed; inset: 0; z-index: 5; }
 .flow-grid { position: absolute; inset: 0; overflow-y: auto; padding: 14px clamp(18px, 5vw, 80px) 30px; display: none; grid-template-columns: repeat(auto-fill, minmax(var(--gw, 170px), 1fr)); gap: 22px 20px; align-content: start; }
 .home.grid-mode .flow-grid { display: grid; }
 .home.grid-mode .flow-stage { display: none; }
+/* Cover frames (a theme setting). "soft" is the stylesheet's own look. Each frame covers the shelf, the grids, the album art and the now-playing disc,
+   and strengthens when the card is the focused one. --glow (the theme's Glow) scales the coloured glows. */
+:root[data-frame="glass"] :is(.flow-stage, .flow-grid, .album-art, .np-art) .cover { box-shadow: 0 22px 54px rgb(var(--shadow) / 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.55), inset 0 1.5px 0 rgba(255, 255, 255, 0.85), inset 0 -34px 44px -34px rgba(255, 255, 255, 0.28); }
+:root[data-frame="glass"] :is(.flow-stage .card.focus, .flow-grid .card.focus) .cover { box-shadow: 0 26px 64px hsla(var(--hue) 90% 45% / calc(0.5 * var(--glow, 1))), 0 0 90px hsla(var(--hue) 100% 75% / calc(0.28 * var(--glow, 1))), inset 0 0 0 1.5px rgba(255, 255, 255, 0.8), inset 0 2px 0 rgba(255, 255, 255, 0.95), inset 0 -34px 44px -34px rgba(255, 255, 255, 0.4); }
+:root[data-frame="sharp"] :is(.flow-stage, .flow-grid, .album-art, .np-art) .cover { --r: 2px; box-shadow: 0 18px 40px rgb(var(--shadow) / 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.3); }
+:root[data-frame="sharp"] :is(.flow-stage .card.focus, .flow-grid .card.focus) .cover { box-shadow: 0 22px 50px hsla(var(--hue) 90% 40% / calc(0.55 * var(--glow, 1))), 0 0 0 1px hsl(var(--hue) 100% 75%), inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
+:root[data-frame="neon"] :is(.flow-stage, .flow-grid, .album-art, .np-art) .cover { box-shadow: 0 0 0 1.5px hsla(var(--hue) 100% 68% / 0.55), 0 0 18px hsla(var(--hue) 100% 60% / calc(0.35 * var(--glow, 1))), inset 0 0 0 1px rgba(255, 255, 255, 0.2); }
+:root[data-frame="neon"] :is(.flow-stage .card.focus, .flow-grid .card.focus, .album-art, .np-art) .cover { box-shadow: 0 0 0 2px hsl(var(--hue) 100% 70%), 0 0 22px hsla(var(--hue) 100% 62% / calc(0.8 * var(--glow, 1))), 0 0 70px hsla(var(--hue) 100% 55% / calc(0.5 * var(--glow, 1))), inset 0 0 0 1px rgba(255, 255, 255, 0.45); }
+:root[data-frame="film"] :is(.flow-stage, .flow-grid, .album-art, .np-art) .cover { --r: 4px; box-shadow: 0 22px 54px rgb(var(--shadow) / 0.55), inset 0 0 0 7px #0b0b0d, inset 0 0 0 8px rgba(255, 255, 255, 0.22); }
+:root[data-frame="film"] :is(.flow-stage .card.focus, .flow-grid .card.focus) .cover { box-shadow: 0 26px 64px hsla(var(--hue) 80% 35% / calc(0.45 * var(--glow, 1))), inset 0 0 0 7px #0b0b0d, inset 0 0 0 8px rgba(255, 255, 255, 0.4); }
+/* While a folder is being dragged over the window. */
+body.dropping::after { content: "Drop a folder to add it to your library"; position: fixed; inset: 14px; z-index: 60; display: grid; place-items: center; border: 3px dashed var(--accent); border-radius: 26px; background: rgb(var(--scrim) / 0.6); backdrop-filter: blur(6px); font-size: clamp(18px, 2.2vw, 28px); font-weight: 600; letter-spacing: 0.04em; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4); pointer-events: none; animation: fade 0.15s ease-out; }
+/* A photo album: a heading with a back button, and the photos as a grid. */
+.screen.pgrid.active { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.pa-head { display: flex; align-items: center; gap: 14px; padding: 4px clamp(18px, 5vw, 80px) 0; }
+.pa-head h2 { font-size: clamp(22px, 2.4vw, 32px); font-weight: 600; line-height: 1.15; }
+.pa-head .sub { margin-top: 2px; color: var(--text-dim); font-size: 14px; letter-spacing: 0.04em; }
+.pgrid .flow-root { position: relative; min-height: 0; }
+.pgrid .flow-stage { display: none; }
+.pgrid .flow-grid { display: grid; }
 .flow-grid .card { cursor: pointer; transition: transform 0.25s var(--ease); content-visibility: auto; contain-intrinsic-size: var(--gw, 170px) calc(var(--gw, 170px) / var(--ratio, 1) + 44px); }
 .flow-grid .card .cover { aspect-ratio: var(--ratio, 1); height: auto; }
 .flow-grid .card.focus { transform: translateY(-6px) scale(1.04); }
-.flow-grid .card.focus .cover { box-shadow: 0 20px 50px hsla(var(--hue) 90% 40% / 0.6), 0 0 60px hsla(var(--hue) 100% 70% / 0.3), inset 0 0 0 2px rgba(255, 255, 255, 0.75); }
+.flow-grid .card.focus .cover { box-shadow: 0 20px 50px hsla(var(--hue) 90% 40% / calc(0.6 * var(--glow, 1))), 0 0 60px hsla(var(--hue) 100% 70% / calc(0.3 * var(--glow, 1))), inset 0 0 0 2px rgba(255, 255, 255, 0.75); }
 .flow-grid .cap { display: block; margin-top: 10px; font-size: 14px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
 .flow-grid .card.focus .cap { color: var(--text); }
 
@@ -213,7 +262,7 @@ body.immersive #screens { position: fixed; inset: 0; z-index: 5; }
 .album { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; padding: 8px clamp(18px, 4vw, 70px) 16px; }
 .album-wrap { width: min(1180px, 100%); height: 100%; max-height: 640px; display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr); gap: clamp(22px, 4vw, 64px); align-items: center; }
 .album-art { justify-self: center; width: min(100%, 52vh, 460px); aspect-ratio: 1; -webkit-box-reflect: below 6px linear-gradient(to bottom, transparent 62%, rgba(255, 255, 255, 0.22)); }
-.album-art .cover { --r: calc(var(--radius) * 1.3); box-shadow: 0 30px 80px hsla(var(--hue) 90% 35% / 0.65), inset 0 0 0 1.5px rgba(255, 255, 255, 0.5); }
+.album-art .cover { --r: calc(var(--radius) * 1.3); box-shadow: 0 30px 80px hsla(var(--hue) 90% 35% / calc(0.65 * var(--glow, 1))), inset 0 0 0 1.5px rgba(255, 255, 255, 0.5); }
 .album-art.poster { width: auto; height: min(58vh, 520px); aspect-ratio: 2 / 3; }
 .album-art.poster .cover { --r: var(--radius); }
 .album-panel .blurb { margin: 10px 0 0; color: var(--text-dim); font-size: 14px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -249,7 +298,7 @@ body.immersive #screens { position: fixed; inset: 0; z-index: 5; }
 .np { position: relative; display: flex; flex-direction: column; align-items: center; width: min(720px, 92vw); }
 .np-art-wrap { position: relative; width: min(40vh, 340px); aspect-ratio: 1; margin-bottom: clamp(14px, 3vh, 30px); }
 .np-art { position: relative; width: 100%; height: 100%; }
-.np-art .cover { --r: 50%; box-shadow: 0 30px 90px hsla(var(--hue) 100% 45% / 0.65), inset 0 0 0 2px rgba(255, 255, 255, 0.55); }
+.np-art .cover { --r: 50%; box-shadow: 0 30px 90px hsla(var(--hue) 100% 45% / calc(0.65 * var(--glow, 1))), inset 0 0 0 2px rgba(255, 255, 255, 0.55); }
 .np-art-wrap { will-change: transform; }
 .np h2 { margin: 0; font-weight: 300; font-size: clamp(26px, 3.4vw, 42px); text-align: center; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 3px 24px rgb(var(--glow) / 0.5); }
 .np .sub { margin: 6px 0 0; color: var(--text-dim); font-size: clamp(14px, 1.5vw, 18px); text-align: center; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -296,6 +345,7 @@ body.immersive #screens { position: fixed; inset: 0; z-index: 5; }
 .v-row .grow { flex: 1; }
 .v-row .time { font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; margin: 0 10px; }
 .v-row .round { width: 44px; height: 44px; font-size: 26px; }
+@media (max-width: 640px) { .v-row { gap: 4px; } .v-row .round { width: 36px; height: 36px; font-size: 22px; } .v-row .bar { display: none; } } /* a narrow window: smaller buttons, and the volume bar goes (the mute button and the arrow keys remain) */
 .v-flash { position: absolute; left: 50%; top: 50%; width: 96px; height: 96px; margin: -48px; border-radius: 50%; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); display: grid; place-items: center; font-size: 52px; opacity: 0; pointer-events: none; }
 .v-flash.go { animation: flash 0.6s ease-out; }
 @keyframes flash { 0% { opacity: 0.95; transform: scale(0.8); } 100% { opacity: 0; transform: scale(1.35); } }

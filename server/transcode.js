@@ -64,7 +64,7 @@ function fromFfprobe(json) {
       width: Number(v.width) || 0, height: Number(v.height) || 0, transfer: v.color_transfer || '',
     } : null,
     audio: streams.filter((s) => s.codec_type === 'audio').map((s, i) => ({
-      codec: s.codec_name || '', channels: Number(s.channels) || 2, lang: s.tags?.language || '', isDefault: !!s.disposition?.default, ordinal: i,
+      codec: s.codec_name || '', channels: Number(s.channels) || 2, lang: s.tags?.language || '', name: s.tags?.title || '', isDefault: !!s.disposition?.default, ordinal: i,
     })),
   };
 }
@@ -108,7 +108,7 @@ function fromMatroska(raw) {
     let codec = (MK_AUDIO.find(([id]) => t.codec.startsWith(id)) || [])[1] || 'unknown';
     if (t.codec === 'A_PCM/INT/LIT') codec = `pcm_s${t.bitDepth || 16}le`;
     else if (t.codec === 'A_PCM/FLOAT/IEEE') codec = 'pcm_f32le';
-    return { codec, channels: t.channels || 2, lang: t.language || '', isDefault: t.isDefault, ordinal: i };
+    return { codec, channels: t.channels || 2, lang: t.language || '', name: t.name || '', isDefault: t.isDefault, ordinal: i };
   });
   return { duration: raw.duration || 0, video, audio };
 }
@@ -120,11 +120,16 @@ function fromMatroska(raw) {
  *         'transcode'  convert the picture to H.264 as well
  * `force` converts everything, for a file that failed to play although it looked fine.
  */
-function decide(info, caps = new Set(), { force = false } = {}) {
+function decide(info, caps = new Set(), { force = false, audio: want = null } = {}) {
   const reasons = [];
   let video = 'copy';
   let audio = 'copy';
-  const a = pickAudio(info?.audio);
+  // `want` is the ordinal of a sound track the viewer picked. Anything but the track a player would use anyway
+  // means the file has to be re-muxed with that track selected ("switched"), even if nothing needs converting.
+  const usual = pickAudio(info?.audio);
+  const chosen = want == null ? null : (info?.audio || []).find((x) => x.ordinal === want) || null;
+  const a = chosen || usual;
+  const switched = !!chosen && chosen !== usual;
   if (info?.video) {
     const why = videoProblem(info.video, caps);
     if (why) {
@@ -144,17 +149,27 @@ function decide(info, caps = new Set(), { force = false } = {}) {
     reasons.push({ kind: 'video', text: "it wouldn't play as it is", forced: true });
   }
   if (force && a && audio === 'copy') audio = 'aac';
-  const mode = video === 'h264' ? 'transcode' : audio === 'aac' ? 'remux' : 'direct';
+  const mode = video === 'h264' ? 'transcode' : audio === 'aac' || switched ? 'remux' : 'direct';
   return {
-    mode, video, audio, reasons,
+    mode, video, audio, reasons, switched,
     hasAudio: !!a, audioOrdinal: a ? a.ordinal : 0, channels: a?.channels || 2,
+    // true / false when the file is known to have a picture or only sound; null when nothing could be read from it
+    hasVideo: info?.video ? true : a ? false : null,
     hdr: !!isHdr(info?.video), height: info?.video?.height || 0, codec: info?.video?.codec || '',
     duration: info?.duration || 0,
   };
 }
 
+/** The sound tracks a viewer can pick from: [{ ordinal, codec, rawLang, name, channels, isDefault }]. `isDefault` marks the one a player uses on its own. */
+function audioList(info) {
+  const list = info?.audio || [];
+  const usual = pickAudio(list);
+  return list.map((a) => ({ ordinal: a.ordinal, codec: labelAudio(a), rawLang: a.lang || '', name: a.name || '', channels: a.channels || 2, isDefault: a === usual }));
+}
+
 /** A short sentence for the toast shown when playback is converted. */
 function describe(plan) {
+  if (plan.switched && !plan.reasons.length) return 'Switching the sound track';
   const parts = plan.reasons.map((r) => (r.forced ? r.text : `${r.kind} ${r.text}`));
   const what = plan.mode === 'transcode' ? 'Converting video' : 'Converting sound';
   return `${what} for playback${parts.length ? ` (${parts.join(', ')})` : ''}`;
@@ -199,4 +214,4 @@ function buildArgs(plan, file, start = 0, opts = {}) {
   return a;
 }
 
-module.exports = { parseCaps, fromFfprobe, fromMatroska, decide, describe, buildArgs, pickAudio, CAPS };
+module.exports = { parseCaps, fromFfprobe, fromMatroska, decide, describe, buildArgs, pickAudio, audioList, CAPS };

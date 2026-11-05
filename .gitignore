@@ -1,6 +1,12 @@
-# build output (the release zip is attached to a GitHub release, not committed)
-dist/
-node_modules/
-# local data and logs
+# Flowdeck keeps its library, covers and preferences in the user's profile, never in the source folder
 data/
 *.log
+*.tmp
+*.flowdeck-tmp
+*.partial
+
+# tools and operating systems
+node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini

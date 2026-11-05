@@ -51,7 +51,11 @@ export function askFfmpeg(app, plan) {
   return new Promise((resolve) => {
     const what = plan.reasons.map((r) => (r.forced ? r.text : `${r.text} ${r.kind === 'video' ? 'picture' : 'sound'}`)).join(' and ') || 'this video';
     const { canInstall, approxMB } = plan.ffmpeg;
-    const note = `Flowdeck can't play this video's ${what} on its own. ffmpeg, a free tool, can convert it while you watch. ${canInstall
+    // Picking another sound track needs no conversion of anything, but still has to rebuild the stream with ffmpeg.
+    const lead = plan.switched && !plan.reasons.length
+      ? 'Playing the sound track you picked needs ffmpeg, a free tool, to rebuild the video while you watch.'
+      : `Flowdeck can't play this video's ${what} on its own. ffmpeg, a free tool, can convert it while you watch.`;
+    const note = `${lead} ${canInstall
       ? `It's about ${approxMB} MB from gyan.dev (the official Windows build), checked against the checksum gyan.dev publishes, and kept in Flowdeck's own data folder. Nothing else is sent anywhere.`
       : 'Install ffmpeg (for example with your package manager) and restart Flowdeck.'}`;
     const items = [];
