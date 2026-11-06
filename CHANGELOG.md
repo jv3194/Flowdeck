@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.4.0
+
+### New
+- **Tidy folder names** (Options → Tidy folder names, on the video shelves): renames the folder a movie or show is in to
+  a clean "Title (Year)", as you would in Windows, or puts loose files into a folder of their own ("Show (Year)/Season 01"
+  for episodes). Choose the selected movie or show, or everything on the shelf. **Nothing happens until you have seen it:**
+  the list shows what each folder is called now, what it would become, and why anything can't be done. Something looked up
+  online starts ticked; the rest are named from their file names (taking the year and the capital letters from the
+  folder's own name when it says more) and start unticked when you tidy a whole shelf. You can type your own name for any folder.
+  - **Nothing is overwritten or merged.** A folder is only renamed to a name that is free, and loose files are only moved into
+    a folder where no file has the same name. Only folders inside your library folders that hold nothing but that movie or
+    show are renamed, never a library folder itself. A folder that is in use (Windows refuses) is left as it was, and if
+    anything fails halfway, what had been done is put back.
+  - Subtitles, `.nfo` files and artwork named after a video travel with it. A separate `Subs` folder stays behind, and
+    the preview says so.
+  - **Flowdeck keeps what it knows.** A file's id comes from its path, so a rename changes it; its artwork and details,
+    thumbnails, where you got to, watched marks, subtitle delay and cached subtitles are all carried across, and the
+    library holds its own rescans back while it works. (Renaming a folder outside Flowdeck still makes it forget these.)
+  - **Undo.** The last ten changes can be undone exactly, from the same window or Options → Tidy folder names, even after
+    a restart. A change that can no longer be reversed (you renamed the folder again since) is left alone and reported.
+  - Folders under Sonarr or Radarr, or in a downloads folder, come with a warning: they keep their own record of the
+    folders and will lose track of the files.
+
+### Under the hood
+- `server/tidy.js` plans and carries out the changes; the library gains `paused()` (no scan runs, and new ones wait) and
+  `movePaths()` (an item's record follows its files to a new path).
+- 44 more automated tests (232 in all), every one on throwaway folders in the temp directory.
+
 ## 1.3.0
 
 ### Sharper on every screen

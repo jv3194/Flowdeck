@@ -41,6 +41,11 @@ export const api = {
   // Videos the browser can't decode are converted on the fly with ffmpeg (see server/transcode.js)
   play: (id, caps, force = false, audio = null) => req('GET', `/api/play/${id}?caps=${encodeURIComponent(caps)}${force ? '&force=1' : ''}${audio != null ? `&audio=${audio}` : ''}`),
   audioTracks: (id) => req('GET', `/api/audio/${id}`),
+  // Tidy folder names (see server/tidy.js): a plan changes nothing; apply does the approved part; undo reverses a batch
+  tidyPlan: (targets) => req('POST', '/api/tidy/plan', { targets }),
+  tidyApply: (targets) => req('POST', '/api/tidy/apply', { targets }),
+  tidyHistory: () => req('GET', '/api/tidy/undo'),
+  tidyUndo: (id) => req('POST', '/api/tidy/undo', { id }),
   ffmpegStatus: () => req('GET', '/api/ffmpeg'),
   ffmpegInstall: () => req('POST', '/api/ffmpeg/install'),
   ffmpegRemove: () => req('POST', '/api/ffmpeg/remove'),

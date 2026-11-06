@@ -232,7 +232,38 @@ class Library {
     this.rev++;
   }
 
+  /**
+   * Run `fn` while no scan is running or can start (scans asked for meanwhile wait, and run once `fn` is done). For
+   * work that changes files under the library's feet, such as renaming a folder: a scan in the middle would see
+   * half of it and forget what it knew about the files that had just moved.
+   */
+  async paused(fn, { wait = 60000 } = {}) {
+    const end = Date.now() + wait;
+    for (;;) {
+      while (this.scanning) {
+        if (Date.now() > end) throw Object.assign(new Error('The library is busy scanning. Try again in a moment'), { status: 409 });
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      this._hold = (this._hold || 0) + 1;
+      if (!this.scanning) break; // a scan can have started while we were waking up: step back and wait for it too
+      this._hold--;
+    }
+    try {
+      return await fn();
+    } finally {
+      this._hold--;
+      if (!this._hold && this._deferred) {
+        this._deferred = false;
+        this.scan();
+      }
+    }
+  }
+
   scan() {
+    if (this._hold) {
+      this._deferred = true;
+      return;
+    }
     if (this.scanning) {
       this._again = true;
       return;
@@ -349,6 +380,51 @@ class Library {
       }
     };
     await Promise.all(Array.from({ length: 8 }, worker));
+  }
+
+  /**
+   * Files have been moved on disk (a file to a new path, or a whole folder renamed: `isDir`). Carry their records to
+   * the new paths, with everything known about them: fetched details, covers, resume-able state. An item's id comes
+   * from its path, so it changes; the returned Map says old id → new id, for whatever else is keyed by it.
+   * (Without this, the next scan would see the old files vanish and the new ones appear, and forget all of that.)
+   */
+  async movePaths(moves) {
+    const win = process.platform === 'win32';
+    const key = (p) => (win ? p.toLowerCase() : p);
+    const jobs = [];
+    for (const it of this.items.values()) {
+      const at = key(it.path);
+      for (const m of moves) {
+        const from = key(m.from);
+        if (at === from) jobs.push([it, m.to]);
+        else if (m.isDir && at.startsWith(from.endsWith(path.sep) ? from : from + path.sep)) jobs.push([it, m.to + it.path.slice(m.from.length)]);
+        else continue;
+        break;
+      }
+    }
+    const idMap = new Map();
+    for (const [it] of jobs) this.items.delete(it.id); // all the old keys go first, so two items swapping places can't collide
+    for (const [it, to] of jobs) {
+      const old = it.id;
+      it.id = idFor(to);
+      it.path = to;
+      guessFromPath(it); // the names it was guessed from have changed
+      idMap.set(old, it.id);
+      this.items.set(it.id, it);
+      // The covers on disk are named after the id.
+      for (const [flag, part] of [['cf', ''], ['pf', 'poster.']]) {
+        if (!it[flag]) continue;
+        const ext = it[flag];
+        try {
+          await fsp.rename(path.join(this.coverDir, `${old}.${part}${ext}`), path.join(this.coverDir, `${it.id}.${part}${ext}`));
+        } catch {
+          it[flag] = undefined; // the file wasn't there: the cover is simply made again when needed
+        }
+      }
+    }
+    for (const it of this.items.values()) if (it.fetched?.art && idMap.has(it.fetched.art)) it.fetched.art = idMap.get(it.fetched.art);
+    if (idMap.size) this._touch();
+    return idMap;
   }
 
   /** Forget the item's cover files. The returned promise settles once they're deleted (callers may ignore it). */

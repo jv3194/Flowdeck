@@ -5,7 +5,8 @@ A cover-flow player for music, videos and photos. This folder is the app's sourc
 
 ```
 main.js        Electron shell: starts the server in-process and opens the window
-server/        local HTTP server: library scan, tags, metadata lookups, subtitles, ffmpeg conversion
+server/        local HTTP server: library scan, tags, metadata lookups, subtitles, ffmpeg conversion,
+               folder tidying (renaming movie and show folders, with undo)
 web/           the interface (plain ES modules, no build step)
 assets/        icons
 test/          automated tests
@@ -21,7 +22,8 @@ Uses Node's built-in test runner (Node 20 or newer), so there is nothing to inst
 
 - `test/server/*.test.js` run the server code against real temporary folders and files, a fake network, and
   (for the API) a real server on a random port. Nothing touches your own library or the internet.
-- `test/web/*.test.mjs` run the interface's plain-logic modules (shelves, watching, search, themes, layouts)
+  The folder-tidying tests rename and move real files, so they only ever work inside a throwaway folder.
+- `test/web/*.test.mjs` run the interface's plain-logic modules (shelves, watching, search, themes, layouts, tidying)
   in Node, with no browser.
 
 When fixing a bug, add a test that fails without the fix. Several of the tests exist because of a bug that was

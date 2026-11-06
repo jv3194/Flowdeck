@@ -15,6 +15,7 @@ const subtitles = require('./subtitles');
 const { mkvTracks, mkvCues, mkvStreams } = require('./mkv');
 const { Ffmpeg } = require('./ffmpeg');
 const transcode = require('./transcode');
+const { Tidy, migratePrefs } = require('./tidy');
 
 const SUB_FILE_MAX = 8 * 1024 * 1024;
 const CODEC_EXT = { 'TEXT/UTF8': 'srt', 'TEXT/ASS': 'ass', 'TEXT/SSA': 'ssa', 'TEXT/WEBVTT': 'vtt' };
@@ -277,6 +278,23 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
     prefsTimer = setTimeout(() => fsp.writeFile(prefsFile, JSON.stringify(prefs)).catch(() => {}), 500);
   };
 
+  // ---- tidy folder names (see tidy.js): renaming folders changes every file id inside them, so what is keyed by an id follows
+  const tidy = new Tidy({
+    lib,
+    dataDir,
+    busy: () => (enricher.state.active ? 'Wait for the artwork lookup to finish first' : songs.snapshot().active ? 'Wait for the song lookup to finish first' : ''),
+    migrate: async (idMap) => {
+      migratePrefs(prefs, idMap);
+      savePrefs();
+      for (const f of await fsp.readdir(subsDir).catch(() => [])) { // cached subtitles are named <id>.<track>.<mtime>.json
+        const dot = f.indexOf('.');
+        const to = dot > 0 ? idMap.get(f.slice(0, dot)) : null;
+        if (to) await fsp.rename(path.join(subsDir, f), path.join(subsDir, to + f.slice(dot))).catch(() => {});
+      }
+      for (const old of idMap.keys()) embeddedTracks.delete(old);
+    },
+  });
+
   let boundPort = port;
   const allowedHosts = () => new Set([`127.0.0.1:${boundPort}`, `localhost:${boundPort}`, `[::1]:${boundPort}`]);
 
@@ -367,6 +385,18 @@ async function startServer({ port = 0, dataDir, webDir, providers, ffmpeg }) {
         return send(res, 200, { ok: true, ...(await songs.apply(body.changes)) });
       } catch (e) {
         return send(res, 502, { error: e.message });
+      }
+    }
+    // Tidy folder names: a plan (changes nothing), applying the approved parts of it, and undoing a batch.
+    if (route === '/api/tidy/undo' && method === 'GET') return send(res, 200, { batches: await tidy.history() });
+    if (/^\/api\/tidy\/(plan|apply|undo)$/.test(route) && method === 'POST') {
+      const body = JSON.parse((await readBody(req, 4 << 20)).toString() || '{}');
+      try {
+        if (route === '/api/tidy/plan') return send(res, 200, { plans: await tidy.plan(body.targets) });
+        if (route === '/api/tidy/apply') return send(res, 200, { ok: true, ...(await tidy.apply(body.targets)) });
+        return send(res, 200, { ok: true, ...(await tidy.undo(String(body.id || ''))) });
+      } catch (e) {
+        return send(res, e.status || 500, { error: e.message });
       }
     }
     if (route === '/api/ffmpeg' && method === 'GET') return send(res, 200, await ffmpeg.status());

@@ -128,4 +128,4 @@ function parseVideoName(file, root = path.dirname(file)) {
   return year ? { type: 'movie', title, year } : { type: 'movie', title };
 }
 
-module.exports = { normalize, similarity, parseVideoName };
+module.exports = { normalize, similarity, parseVideoName, SEASON_DIR };

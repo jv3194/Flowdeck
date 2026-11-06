@@ -16,6 +16,8 @@ import { VideoScreen } from './screens/video.js';
 import { ThemeManager } from './themes.js';
 import { openThemes } from './themeui.js';
 import { openSongReview } from './songsui.js';
+import { migrateIds } from './tidy.js';
+import { openTidy } from './tidyui.js';
 import { AboutSheet, Hints, ListSheet, openFolderBrowser, StatusBar, TextPrompt, toast } from './ui.js';
 import { FrameGovernor, isTier, lowerTier, QUALITY_CHOICES, stepUiSize, thumbSize, tierFor, UI_SIZES, uiFactor } from './quality.js';
 import { debounce, Emitter, h, hashHue, icon, reducedMotion, sleep } from './util.js';
@@ -512,6 +514,7 @@ class App extends Emitter {
       ...this.watchRow(),
       { label: 'Artwork & metadata', icon: 'image', keep: true, action: () => this.openArtwork() },
       { label: 'Theme & style', icon: 'palette', value: `${this.themes.base.name}${this.themes.dirty ? ' (edited)' : ''}`, keep: true, action: () => openThemes(this) },
+      ...this.tidyRow(),
       { label: 'Video conversion', icon: 'sync', value: p.convert === false ? 'Off' : this.ffmpeg?.state === 'ready' ? 'Ready' : this.ffmpeg?.state === 'busy' ? 'Downloading' : 'Needs ffmpeg', keep: true, action: () => openFfmpegSheet(this) },
       { sep: true },
       { label: 'View', icon: p.view === 'flow' ? 'flow' : 'grid', value: p.view === 'flow' ? 'Cover flow' : 'Grid', keep: true, action: (s) => { this.toggleView(); s.setItems(build(), { keepSel: true }); } },
@@ -627,6 +630,22 @@ class App extends Emitter {
       note: 'Photos only appear on the Photos shelf from folders added as photos. Your files are never changed.',
       items: first === 'photos' ? [{ ...photos, primary: true }, media, { label: 'Cancel', icon: 'close' }] : [{ ...media, primary: true }, photos, { label: 'Cancel', icon: 'close' }],
     }));
+  }
+
+  /** "Tidy folder names" for movies and shows: only on the video shelves, where there is something to rename. */
+  tidyRow() {
+    const ctx = this.currentEntry();
+    if (baseCategory(this.prefs.category) !== 'video' && !(ctx && baseCategory(ctx.category) === 'video')) return [];
+    return [{ label: 'Tidy folder names', icon: 'folder', sm: 'rename movie and show folders', keep: true, action: () => openTidy(this) }];
+  }
+
+  /**
+   * Renaming a folder changes the id of every file in it. The server carries the saved preferences across; this does the
+   * same for the page's copy, and for any change still waiting to be sent, so nothing is saved under an old id.
+   */
+  migrateIds(idMap) {
+    migrateIds(this.prefs, idMap);
+    migrateIds(this.pendingPrefs, idMap);
   }
 
   /** "Mark as watched / not watched" for the movie or show in focus. Nothing for music and photos. */
